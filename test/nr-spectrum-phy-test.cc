@@ -24,9 +24,14 @@
 #include "ns3/multi-model-spectrum-channel.h"
 #include "ns3/nr-gnb-phy.h"
 #include "ns3/nr-interference.h"
+#include "ns3/nr-mimo-chunk-processor.h"
 #include "ns3/nr-spectrum-phy.h"
+#include "ns3/nr-spectrum-signal-parameters.h"
 #include "ns3/nr-spectrum-value-helper.h"
+#include "ns3/uniform-planar-array.h"
 
+#include <cmath>
+#include <complex>
 #include <numeric>
 
 namespace ns3
@@ -215,6 +220,93 @@ SetNoisePsdTestCase::DoRun()
     Simulator::Destroy();
 }
 
+/**
+ * @ingroup test
+ * @brief Check the channel matrix NrSpectrumPhy builds for a signal without one.
+ *
+ * The matrix must carry the received power, whatever the transmit power, and the MIMO
+ * SINR computed from it must be the received power over the noise.
+ */
+class NrSpectrumPhyChannelMatrixTestCase : public TestCase
+{
+  public:
+    NrSpectrumPhyChannelMatrixTestCase()
+        : TestCase("Channel matrix without a channel model carries the received power")
+    {
+    }
+
+  private:
+    void DoRun() override
+    {
+        // Received PSD with different values per RB, including an RB without signal
+        const uint32_t numRbs = 4;
+        const double noisePsdValue = 1e-20;
+        const std::vector<double> rxPsdValues{1e-17, 2e-18, 0.0, 5e-19};
+
+        // Single-port PHYs, with a transmit PSD far from the received one
+        auto sm = NrSpectrumValueHelper::GetSpectrumModel(numRbs, 3.5e9, 15e3);
+        auto txPsd = Create<SpectrumValue>(sm);
+        *txPsd = 1e-6;
+        auto txPhy = CreateObject<NrSpectrumPhy>();
+        txPhy->SetAntenna(CreateObject<UniformPlanarArray>());
+        txPhy->SetTxPowerSpectralDensity(txPsd);
+        auto rxPhy = CreateObject<NrSpectrumPhy>();
+        rxPhy->SetAntenna(CreateObject<UniformPlanarArray>());
+
+        // Signal without a channel matrix, for which NrSpectrumPhy builds one
+        auto params = Create<NrSpectrumSignalParametersDataFrame>();
+        params->psd = Create<SpectrumValue>(sm);
+        for (uint32_t rb = 0; rb < numRbs; ++rb)
+        {
+            (*params->psd)[rb] = rxPsdValues[rb];
+        }
+        params->txPhy = txPhy;
+        params->cellId = 1;
+        params->rnti = 1;
+        params->spectrumChannelMatrix = rxPhy->CreateSpectrumChannelMatrix(params);
+
+        // The squared channel gain must not depend on the transmit PSD
+        for (uint32_t rb = 0; rb < numRbs; ++rb)
+        {
+            NS_TEST_EXPECT_MSG_EQ_TOL(std::norm(params->spectrumChannelMatrix->Elem(0, 0, rb)),
+                                      rxPsdValues[rb],
+                                      1e-9 * rxPsdValues[rb],
+                                      "Channel gain must be the received PSD on RB " << rb);
+        }
+
+        // Evaluate the MIMO SINR of the signal alone, over the noise
+        auto noisePsd = Create<SpectrumValue>(sm);
+        *noisePsd = noisePsdValue;
+        std::vector<MimoSinrChunk> chunks;
+        auto mimoChunk = Create<NrMimoChunkProcessor>();
+        mimoChunk->AddCallback(Callback<void, const std::vector<MimoSinrChunk>&>(
+            [&chunks](const std::vector<MimoSinrChunk>& c) { chunks = c; }));
+        auto interference = CreateObject<NrInterference>();
+        interference->AddMimoChunkProcessor(mimoChunk);
+        interference->SetNoisePowerSpectralDensity(noisePsd);
+        interference->AddSignalMimo(params, MilliSeconds(1));
+        interference->StartRxMimo(params);
+        Simulator::Schedule(MilliSeconds(1), &NrInterference::EndRx, interference);
+        Simulator::Run();
+
+        // The SINR must follow the link budget on every RB
+        NS_TEST_ASSERT_MSG_EQ(chunks.empty(), false, "No MIMO SINR chunk was evaluated");
+        for (uint32_t rb = 0; rb < numRbs; ++rb)
+        {
+            const double expected = rxPsdValues[rb] / noisePsdValue;
+            NS_TEST_EXPECT_MSG_EQ_TOL(chunks.back().mimoSinr(0, rb),
+                                      expected,
+                                      1e-9 * expected,
+                                      "SINR must be the received PSD over the noise on RB " << rb);
+        }
+
+        // Break the reference cycles, as the PHYs are not aggregated to a node
+        txPhy->Dispose();
+        rxPhy->Dispose();
+        Simulator::Destroy();
+    }
+};
+
 NrSpectrumPhyTestSuite::NrSpectrumPhyTestSuite()
     : TestSuite("nr-spectrum-phy-test")
 {
@@ -308,6 +400,7 @@ NrSpectrumPhyTestSuite::NrSpectrumPhyTestSuite()
                                             input.numerology),
                     Duration::QUICK);
     }
+    AddTestCase(new NrSpectrumPhyChannelMatrixTestCase(), Duration::QUICK);
 }
 
 // Allocate an instance of this TestSuite

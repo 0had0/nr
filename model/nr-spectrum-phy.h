@@ -73,6 +73,7 @@ class NR_EXPORT NrSpectrumPhy : public SpectrumPhy
 {
     friend class NrSpectrumPhyHarqFlushTestCase;
     friend class NrHarqFlushBlerTestCase;
+    friend class NrSpectrumPhyChannelMatrixTestCase;
 
   public:
     /**
