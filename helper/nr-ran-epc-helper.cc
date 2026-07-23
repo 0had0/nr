@@ -135,9 +135,28 @@ NrRanEpcHelper::AddGnb(Ptr<Node> gnb, Ptr<NetDevice> nrGnbNetDevice, uint16_t ce
     retval = nrGnbSocket6->Connect(nrGnbSocketConnectAddress6);
     NS_ASSERT(retval == 0);
 
+    // create the NR socket carrying the unstructured PDU sessions of the gNB
+    Ptr<Socket> nrGnbSocketUnstructured =
+        Socket::CreateSocket(gnb, TypeId::LookupByName("ns3::PacketSocketFactory"));
+    PacketSocketAddress nrGnbSocketBindAddressUnstructured;
+    nrGnbSocketBindAddressUnstructured.SetSingleDevice(nrGnbNetDevice->GetIfIndex());
+    nrGnbSocketBindAddressUnstructured.SetProtocol(
+        NrEpcGnbApplication::UNSTRUCTURED_SOCKET_PROTOCOL);
+    retval = nrGnbSocketUnstructured->Bind(nrGnbSocketBindAddressUnstructured);
+    NS_ASSERT(retval == 0);
+    PacketSocketAddress nrGnbSocketConnectAddressUnstructured;
+    nrGnbSocketConnectAddressUnstructured.SetPhysicalAddress(Mac48Address::GetBroadcast());
+    nrGnbSocketConnectAddressUnstructured.SetSingleDevice(nrGnbNetDevice->GetIfIndex());
+    nrGnbSocketConnectAddressUnstructured.SetProtocol(
+        NrEpcGnbApplication::UNSTRUCTURED_SOCKET_PROTOCOL);
+    retval = nrGnbSocketUnstructured->Connect(nrGnbSocketConnectAddressUnstructured);
+    NS_ASSERT(retval == 0);
+
     NS_LOG_INFO("Create NrEpcGnbApplication for cell ID " << cellId);
-    Ptr<NrEpcGnbApplication> gnbApp =
-        CreateObject<NrEpcGnbApplication>(nrGnbSocket, nrGnbSocket6, cellId);
+    Ptr<NrEpcGnbApplication> gnbApp = CreateObject<NrEpcGnbApplication>(nrGnbSocket,
+                                                                        nrGnbSocket6,
+                                                                        nrGnbSocketUnstructured,
+                                                                        cellId);
     gnb->AddApplication(gnbApp);
     NS_ASSERT(gnb->GetNApplications() == 1);
     NS_ASSERT_MSG(gnb->GetApplication(0)->GetObject<NrEpcGnbApplication>(),

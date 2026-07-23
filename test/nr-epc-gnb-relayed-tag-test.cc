@@ -186,15 +186,23 @@ NrEpcGnbRelayedTagTestCase::DoRun()
     // packet is reported through the RxFromGnb trace.
     Ptr<Socket> s1uSocket =
         Socket::CreateSocket(nodes.Get(1), TypeId::LookupByName("ns3::UdpSocketFactory"));
-    // The application binds a receive callback on both NR sockets, so the IPv6 one has to
-    // exist even though this test only drives the IPv4 path.
+    // The application binds a receive callback on all its NR sockets, so the IPv6 and the
+    // unstructured ones have to exist even though this test only drives the IPv4 path.
     PacketSocketAddress gnbAddress6 = gnbAddress;
     gnbAddress6.SetProtocol(2);
     Ptr<Socket> gnbSocket6 =
         Socket::CreateSocket(nodes.Get(1), TypeId::LookupByName("ns3::PacketSocketFactory"));
     NS_TEST_ASSERT_MSG_EQ(gnbSocket6->Bind(gnbAddress6), 0, "the IPv6 packet socket did not bind");
+    PacketSocketAddress gnbAddressUnstructured = gnbAddress;
+    gnbAddressUnstructured.SetProtocol(NrEpcGnbApplication::UNSTRUCTURED_SOCKET_PROTOCOL);
+    Ptr<Socket> gnbSocketUnstructured =
+        Socket::CreateSocket(nodes.Get(1), TypeId::LookupByName("ns3::PacketSocketFactory"));
+    NS_TEST_ASSERT_MSG_EQ(gnbSocketUnstructured->Bind(gnbAddressUnstructured),
+                          0,
+                          "the unstructured packet socket did not bind");
 
-    Ptr<NrEpcGnbApplication> gnbApp = CreateObject<NrEpcGnbApplication>(gnbSocket, gnbSocket6, 1);
+    Ptr<NrEpcGnbApplication> gnbApp =
+        CreateObject<NrEpcGnbApplication>(gnbSocket, gnbSocket6, gnbSocketUnstructured, 1);
     nodes.Get(1)->AddApplication(gnbApp);
 
     RelayedTagS1SapUser s1SapUser;

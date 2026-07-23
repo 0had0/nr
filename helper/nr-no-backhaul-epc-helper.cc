@@ -609,6 +609,46 @@ NrNoBackhaulEpcHelper::ActivateQosFlow(Ptr<NetDevice> ueDevice,
     return qosFlowId;
 }
 
+uint8_t
+NrNoBackhaulEpcHelper::ActivateUnstructuredQosFlow(Ptr<NetDevice> ueDevice,
+                                                   uint64_t imsi,
+                                                   uint16_t protocolNumber,
+                                                   NrQosFlow flow)
+{
+    NS_LOG_FUNCTION(this << ueDevice << imsi << protocolNumber);
+
+    // The session carries unstructured payload, so the UE has no address to notify to the
+    // core: the session itself identifies the UE, and it is reached through a device
+    // of its own on the PGW rather than by routing on an address.
+    Ptr<NrQosRule> rule = NrQosRule::Unstructured(protocolNumber);
+    uint8_t qosFlowId = m_mmeApp->AddFlow(imsi, rule, flow);
+    rule->SetQfi(qosFlowId);
+
+    Ptr<VirtualNetDevice> sessionDevice = CreateObject<VirtualNetDevice>();
+    // allow jumbo packets
+    sessionDevice->SetAttribute("Mtu", UintegerValue(30000));
+    sessionDevice->SetAddress(Mac48Address::Allocate());
+    m_pgw->AddDevice(sessionDevice);
+    m_unstructuredSessionDevices[{imsi, qosFlowId}] = sessionDevice;
+    m_pgwApp->AddUnstructuredSession(imsi, qosFlowId, protocolNumber, sessionDevice);
+
+    DoActivateQosFlowForUe(ueDevice, rule, flow);
+
+    return qosFlowId;
+}
+
+Ptr<VirtualNetDevice>
+NrNoBackhaulEpcHelper::GetUnstructuredSessionDevice(uint64_t imsi, uint8_t qfi) const
+{
+    NS_LOG_FUNCTION(this << imsi << qfi);
+    auto it = m_unstructuredSessionDevices.find({imsi, qfi});
+    if (it == m_unstructuredSessionDevices.end())
+    {
+        return nullptr;
+    }
+    return it->second;
+}
+
 void
 NrNoBackhaulEpcHelper::DoActivateQosFlowForUe(const Ptr<NetDevice>& ueDevice,
                                               const Ptr<NrQosRule>& rule,
