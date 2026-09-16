@@ -32,6 +32,22 @@ class NrFhPhySapProvider;
 class UniformRandomVariable;
 
 /**
+ * @ingroup gnb-phy
+ * @brief Ensure strict weak ordering of UE devices by IMSI.
+ */
+struct NrUeNetDeviceByImsi
+{
+    /**
+     * Compare two UE devices by IMSI.
+     *
+     * @param a First UE device.
+     * @param b Second UE device.
+     * @return true if the IMSI of a is lower than the IMSI of b.
+     */
+    bool operator()(const Ptr<NrUeNetDevice>& a, const Ptr<NrUeNetDevice>& b) const;
+};
+
+/**
  *
  * @ingroup gnb-phy
  *
@@ -971,7 +987,8 @@ class NR_EXPORT NrGnbPhy : public NrPhy
     bool m_enableCsiRs{false}; //!< Whether to enable or disable CSI-RS signalling
     CsiRsModel m_csiRsModel{CsiRsModel::CSI_RS_PER_UE}; //!< The CSI-RS model to be used
     uint16_t m_csiRsPeriodicity{10};                    //!< Default CSI-RS periodicity
-    std::map<uint16_t, std::set<Ptr<NrUeNetDevice>>> m_csiRsOffsetToUes; //!< Offset to UE map
+    std::map<uint16_t, std::set<Ptr<NrUeNetDevice>, NrUeNetDeviceByImsi>>
+        m_csiRsOffsetToUes; //!< Offset to UE map, ordered by IMSI for deterministic iteration
 
     Time m_lastBfChange; //!< Saves the timestamp when the beamforming vector changes.
 

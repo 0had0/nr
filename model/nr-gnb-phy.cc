@@ -1834,6 +1834,12 @@ NrGnbPhy::SendCtrlChannels(const Time& varTtiPeriod)
     m_ctrlMsgs.clear();
 }
 
+bool
+NrUeNetDeviceByImsi::operator()(const Ptr<NrUeNetDevice>& a, const Ptr<NrUeNetDevice>& b) const
+{
+    return a->GetImsi() < b->GetImsi();
+}
+
 void
 NrGnbPhy::AssignCsiRsOffset(const Ptr<NrUeNetDevice>& ueDevice)
 {
@@ -1854,7 +1860,7 @@ NrGnbPhy::AssignCsiRsOffset(const Ptr<NrUeNetDevice>& ueDevice)
                 if (m_tddPattern[index] != LteNrTddSlotType::UL)
                 {
                     m_csiRsOffsetToUes[m_tddPattern.size() * round + index] =
-                        std::set<Ptr<NrUeNetDevice>>();
+                        std::set<Ptr<NrUeNetDevice>, NrUeNetDeviceByImsi>();
                 }
             }
         }
