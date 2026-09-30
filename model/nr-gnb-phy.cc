@@ -1459,8 +1459,15 @@ void
 NrGnbPhy::TransmitCsiRsPerUe(Ptr<NrUeNetDevice> ueDev)
 {
     NS_LOG_FUNCTION(this);
-    ChangeBeamformingVector(ueDev);
     uint64_t rnti = (DynamicCast<NrUePhy>(ueDev->GetPhy(GetBwpId())))->GetRnti();
+    if (rnti == 0)
+    {
+        // The UE is registered at attachment, but it has no RNTI until it connects
+        NS_LOG_DEBUG("Skipping CSI-RS towards UE with IMSI " << ueDev->GetImsi()
+                                                             << ", which has no RNTI yet");
+        return;
+    }
+    ChangeBeamformingVector(ueDev);
 
     NS_LOG_DEBUG("Transmitting CSI-RS towards UE with IMSI : " << ueDev->GetImsi() << " at slot:"
                                                                << +m_currentSlot.Normalize());

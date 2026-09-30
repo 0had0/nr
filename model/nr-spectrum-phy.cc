@@ -2112,7 +2112,8 @@ void
 NrSpectrumPhy::StartRxCsiRs(const Ptr<NrSpectrumSignalParametersCsiRs>& csiRsParams)
 {
     // TODO extend in future to support a predefined set of beams
-    if (csiRsParams->rnti == m_rnti)
+    // A UE without an RNTI (not connected yet) is not the target of any CSI-RS
+    if (m_rnti != 0 && csiRsParams->rnti == m_rnti)
     {
         // add this signal to all the signals
         m_interferenceCsiRs->AddSignalMimo(csiRsParams, csiRsParams->duration);

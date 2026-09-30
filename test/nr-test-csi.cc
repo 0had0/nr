@@ -26,6 +26,7 @@
 #include "ns3/constant-position-mobility-model.h"
 #include "ns3/double.h"
 #include "ns3/flow-monitor-helper.h"
+#include "ns3/ideal-beamforming-algorithm.h"
 #include "ns3/internet-stack-helper.h"
 #include "ns3/ipv4-flow-classifier.h"
 #include "ns3/ipv4-static-routing-helper.h"
@@ -41,9 +42,12 @@
 #include "ns3/nr-json.hpp"
 #include "ns3/nr-mac-scheduler-ns3.h"
 #include "ns3/nr-point-to-point-epc-helper.h"
+#include "ns3/nr-spectrum-phy.h"
+#include "ns3/nr-spectrum-signal-parameters.h"
 #include "ns3/nr-spectrum-value-helper.h"
 #include "ns3/nr-ue-net-device.h"
 #include "ns3/nr-ue-phy.h"
+#include "ns3/nr-ue-rrc.h"
 #include "ns3/point-to-point-helper.h"
 #include "ns3/position-allocator.h"
 #include "ns3/rng-seed-manager.h"
@@ -895,6 +899,157 @@ NrCsiTestCase::DoRun()
     Simulator::Destroy();
 }
 
+/**
+ * @ingroup test
+ *
+ * Test CSI-RS, CSI-IM and PDSCH based CSI feedback when a UE loses its
+ * connection. After a radio link failure, the UE goes back to the idle cell
+ * search without an RNTI, while the gNB keeps it registered for CSI-RS. The
+ * gNB used to transmit CSI-RS towards RNTI 0, which any UE without an RNTI
+ * accepted, possibly without having processed the DL control of the slot,
+ * scheduling the CSI-IM check with a negative delay and aborting the
+ * simulation. The test checks that the gNB transmits CSI-RS, but never
+ * towards RNTI 0, and that the UE loses its connection as intended.
+ */
+class NrCsiRsAfterRadioLinkFailureTestCase : public TestCase
+{
+  public:
+    NrCsiRsAfterRadioLinkFailureTestCase()
+        : TestCase("CSI-RS, CSI-IM and PDSCH feedback with a UE losing its connection")
+    {
+    }
+
+  private:
+    void DoRun() override;
+};
+
+void
+NrCsiRsAfterRadioLinkFailureTestCase::DoRun()
+{
+    RngSeedManager::SetSeed(1);
+    RngSeedManager::SetRun(1);
+    Config::SetDefault("ns3::NrPmSearch::RankLimit", UintegerValue(4));
+    Config::SetDefault("ns3::NrPmSearch::SubbandSize", UintegerValue(16));
+    Config::SetDefault("ns3::NrPmSearchFull::CodebookType",
+                       TypeIdValue(TypeId::LookupByName("ns3::NrCbTypeOneSp")));
+    // Fast radio link failure detection
+    Config::SetDefault("ns3::NrUeRrc::N310", UintegerValue(1));
+    Config::SetDefault("ns3::NrUeRrc::N311", UintegerValue(1));
+    Config::SetDefault("ns3::NrUeRrc::T310", TimeValue(MilliSeconds(100)));
+    Config::SetDefault("ns3::NrUePhy::NumQoutEvalSf", UintegerValue(10));
+    Config::SetDefault("ns3::NrUePhy::NumQinEvalSf", UintegerValue(10));
+
+    NodeContainer gnbContainer(1);
+    NodeContainer ueContainer(2);
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    mobility.Install(gnbContainer);
+    mobility.Install(ueContainer);
+    gnbContainer.Get(0)->GetObject<MobilityModel>()->SetPosition(Vector(0, 0, 10));
+    for (uint32_t i = 0; i < ueContainer.GetN(); i++)
+    {
+        ueContainer.Get(i)->GetObject<MobilityModel>()->SetPosition(Vector(-20, 5.0 * i, 1.5));
+    }
+
+    auto nrEpcHelper = CreateObject<NrPointToPointEpcHelper>();
+    auto idealBeamformingHelper = CreateObject<IdealBeamformingHelper>();
+    auto nrHelper = CreateObject<NrHelper>();
+    nrHelper->SetBeamformingHelper(idealBeamformingHelper);
+    nrHelper->SetEpcHelper(nrEpcHelper);
+    nrHelper->SetAttribute("UseIdealRrc", BooleanValue(true));
+    nrHelper->SetAttribute("CsiFeedbackFlags",
+                           UintegerValue(CQI_PDSCH_MIMO | CQI_CSI_RS | CQI_CSI_IM));
+    idealBeamformingHelper->SetAttribute("BeamformingMethod",
+                                         TypeIdValue(DirectPathBeamforming::GetTypeId()));
+
+    NrHelper::AntennaParams apUe;
+    apUe.antennaElem = "ns3::ThreeGppAntennaModel";
+    apUe.nAntCols = 2;
+    apUe.nAntRows = 2;
+    apUe.nHorizPorts = 2;
+    apUe.nVertPorts = 1;
+    apUe.isDualPolarized = true;
+    NrHelper::AntennaParams apGnb = apUe;
+    apGnb.nAntCols = 4;
+    apGnb.bearingAngle = M_PI;
+    nrHelper->SetupGnbAntennas(apGnb);
+    nrHelper->SetupUeAntennas(apUe);
+    nrHelper->SetGnbPhyAttribute("Numerology", UintegerValue(0));
+
+    CcBwpCreator ccBwpCreator;
+    CcBwpCreator::SimpleOperationBandConf bandConf(3.5e9, 20e6, 1);
+    OperationBandInfo band = ccBwpCreator.CreateOperationBandContiguousCc(bandConf);
+    auto channelHelper = CreateObject<NrChannelHelper>();
+    channelHelper->ConfigureFactories("UMi", "LOS", "ThreeGpp");
+    channelHelper->AssignChannelsToBands({band});
+    auto allBwps = CcBwpCreator::GetAllBwps({band});
+
+    NetDeviceContainer gnbNetDev = nrHelper->InstallGnbDevice(gnbContainer, allBwps);
+    NetDeviceContainer ueNetDev = nrHelper->InstallUeDevice(ueContainer, allBwps);
+    nrHelper->AssignStreams({.assignEpc = true, .gnbDevs = gnbNetDev, .ueDevs = ueNetDev});
+
+    InternetStackHelper internet;
+    internet.Install(ueContainer);
+    nrEpcHelper->AssignUeIpv4Address(ueNetDev);
+    for (uint32_t i = 0; i < ueNetDev.GetN(); i++)
+    {
+        nrHelper->AttachToGnb(ueNetDev.Get(i), gnbNetDev.Get(0));
+    }
+
+    // The second UE jumps out of coverage once connected, so it detects a radio
+    // link failure and returns to the idle cell search, still registered for
+    // CSI-RS at the gNB
+    bool backToCellSearch = false;
+    auto ueRrc = DynamicCast<NrUeNetDevice>(ueNetDev.Get(1))->GetRrc();
+    ueRrc->TraceConnectWithoutContext(
+        "StateTransition",
+        MakeCallback(
+            +[](bool* idle, uint64_t, uint16_t, uint16_t, NrUeRrc::State, NrUeRrc::State state) {
+                *idle |= state == NrUeRrc::IDLE_CELL_SEARCH;
+            })
+            .Bind(&backToCellSearch));
+    // It then returns into coverage, finds the cell again and waits for its
+    // system information without an RNTI
+    auto ueMobility = ueContainer.Get(1)->GetObject<MobilityModel>();
+    Simulator::Schedule(MilliSeconds(200),
+                        [ueMobility]() { ueMobility->SetPosition(Vector(15000, 0, 1.5)); });
+    Simulator::Schedule(MilliSeconds(400),
+                        [ueMobility]() { ueMobility->SetPosition(Vector(-20, 5, 1.5)); });
+
+    // Count the CSI-RS transmissions, and those towards RNTI 0
+    std::pair<uint32_t, uint32_t> csiRsCount{0, 0};
+    auto channel = DynamicCast<NrGnbNetDevice>(gnbNetDev.Get(0))
+                       ->GetPhy(0)
+                       ->GetSpectrumPhy()
+                       ->GetSpectrumChannel();
+    channel->TraceConnectWithoutContext(
+        "TxSigParams",
+        MakeCallback(+[](std::pair<uint32_t, uint32_t>* count,
+                         Ptr<SpectrumSignalParameters> params) {
+            if (auto csiRs = DynamicCast<NrSpectrumSignalParametersCsiRs>(params))
+            {
+                count->first++;
+                count->second += csiRs->rnti == 0 ? 1 : 0;
+            }
+        }).Bind(&csiRsCount));
+
+    Simulator::Stop(MilliSeconds(800));
+    Simulator::Run();
+
+    NS_TEST_EXPECT_MSG_GT(csiRsCount.first, 0, "The gNB should transmit CSI-RS");
+    NS_TEST_EXPECT_MSG_EQ(csiRsCount.second,
+                          0,
+                          "The gNB should not transmit CSI-RS towards a UE without an RNTI");
+
+    NS_TEST_EXPECT_MSG_EQ(backToCellSearch,
+                          true,
+                          "The second UE should lose its connection and search for a cell");
+    NS_TEST_EXPECT_MSG_EQ(DynamicCast<NrUeNetDevice>(ueNetDev.Get(0))->GetRrc()->GetState(),
+                          NrUeRrc::CONNECTED_NORMALLY,
+                          "The first UE should stay connected");
+    Simulator::Destroy();
+}
+
 NrCsiTestSuite::NrCsiTestSuite()
     : TestSuite("nr-test-csi")
 {
@@ -967,6 +1122,7 @@ NrCsiTestSuite::NrCsiTestSuite()
     {
         AddTestCase(new NrCsiTestCase(param), param.m_duration);
     }
+    AddTestCase(new NrCsiRsAfterRadioLinkFailureTestCase(), Duration::QUICK);
 }
 
 // Allocate an instance of this TestSuite
