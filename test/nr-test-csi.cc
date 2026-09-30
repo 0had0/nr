@@ -50,6 +50,7 @@
 #include "ns3/nr-ue-rrc.h"
 #include "ns3/point-to-point-helper.h"
 #include "ns3/position-allocator.h"
+#include "ns3/propagation-delay-model.h"
 #include "ns3/rng-seed-manager.h"
 #include "ns3/test.h"
 #include "ns3/udp-client-server-helper.h"
@@ -1254,6 +1255,109 @@ NrCsiRsAfterCellChangeTestCase::DoRun()
     Simulator::Destroy();
 }
 
+/**
+ * @ingroup test
+ *
+ * Test CSI-RS and CSI-IM feedback with a propagation delay. The gNB transmits
+ * the CSI-RS at the end of the DL control, so with a propagation delay the UE
+ * receives it after the DL control of the slot ended, on the UE timeline. The
+ * UE checks whether to measure CSI-IM at the end of the DL control, which used
+ * to be scheduled with a negative delay in this case, aborting the simulation.
+ * The test checks that the UE processes the CSI-RS and stays connected.
+ */
+class NrCsiRsPropagationDelayTestCase : public TestCase
+{
+  public:
+    NrCsiRsPropagationDelayTestCase()
+        : TestCase("CSI-RS and CSI-IM feedback with a propagation delay")
+    {
+    }
+
+  private:
+    void DoRun() override;
+};
+
+void
+NrCsiRsPropagationDelayTestCase::DoRun()
+{
+    RngSeedManager::SetSeed(1);
+    RngSeedManager::SetRun(1);
+    Config::SetDefault("ns3::NrPmSearch::RankLimit", UintegerValue(4));
+    Config::SetDefault("ns3::NrPmSearch::SubbandSize", UintegerValue(16));
+    Config::SetDefault("ns3::NrPmSearchFull::CodebookType",
+                       TypeIdValue(TypeId::LookupByName("ns3::NrCbTypeOneSp")));
+
+    NodeContainer gnbContainer(1);
+    NodeContainer ueContainer(1);
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    mobility.Install(gnbContainer);
+    mobility.Install(ueContainer);
+    gnbContainer.Get(0)->GetObject<MobilityModel>()->SetPosition(Vector(0, 0, 10));
+    ueContainer.Get(0)->GetObject<MobilityModel>()->SetPosition(Vector(20, 5, 1.5));
+
+    auto nrEpcHelper = CreateObject<NrPointToPointEpcHelper>();
+    auto idealBeamformingHelper = CreateObject<IdealBeamformingHelper>();
+    auto nrHelper = CreateObject<NrHelper>();
+    nrHelper->SetBeamformingHelper(idealBeamformingHelper);
+    nrHelper->SetEpcHelper(nrEpcHelper);
+    nrHelper->SetAttribute("UseIdealRrc", BooleanValue(true));
+    nrHelper->SetAttribute("CsiFeedbackFlags", UintegerValue(CQI_CSI_RS | CQI_CSI_IM));
+    idealBeamformingHelper->SetAttribute("BeamformingMethod",
+                                         TypeIdValue(DirectPathBeamforming::GetTypeId()));
+
+    NrHelper::AntennaParams apUe;
+    apUe.antennaElem = "ns3::ThreeGppAntennaModel";
+    apUe.nAntCols = 2;
+    apUe.nAntRows = 2;
+    apUe.nHorizPorts = 2;
+    apUe.nVertPorts = 1;
+    apUe.isDualPolarized = true;
+    NrHelper::AntennaParams apGnb = apUe;
+    apGnb.nAntCols = 4;
+    nrHelper->SetupGnbAntennas(apGnb);
+    nrHelper->SetupUeAntennas(apUe);
+    nrHelper->SetGnbPhyAttribute("Numerology", UintegerValue(0));
+
+    CcBwpCreator ccBwpCreator;
+    CcBwpCreator::SimpleOperationBandConf bandConf(3.5e9, 20e6, 1);
+    OperationBandInfo band = ccBwpCreator.CreateOperationBandContiguousCc(bandConf);
+    auto channelHelper = CreateObject<NrChannelHelper>();
+    channelHelper->ConfigureFactories("UMi", "LOS", "ThreeGpp");
+    channelHelper->AssignChannelsToBands({band});
+    auto allBwps = CcBwpCreator::GetAllBwps({band});
+
+    NetDeviceContainer gnbNetDev = nrHelper->InstallGnbDevice(gnbContainer, allBwps);
+    NetDeviceContainer ueNetDev = nrHelper->InstallUeDevice(ueContainer, allBwps);
+    nrHelper->AssignStreams({.assignEpc = true, .gnbDevs = gnbNetDev, .ueDevs = ueNetDev});
+
+    InternetStackHelper internet;
+    internet.Install(ueContainer);
+    nrEpcHelper->AssignUeIpv4Address(ueNetDev);
+    nrHelper->AttachToGnb(ueNetDev.Get(0), gnbNetDev.Get(0));
+
+    auto uePhy = DynamicCast<NrUeNetDevice>(ueNetDev.Get(0))->GetPhy(0);
+    uePhy->GetSpectrumPhy()->GetSpectrumChannel()->SetPropagationDelayModel(
+        CreateObject<ConstantSpeedPropagationDelayModel>());
+
+    uint32_t csiRsRx = 0;
+    auto csiRsProcessor = Create<NrMimoChunkProcessor>();
+    csiRsProcessor->AddCallback(
+        MakeCallback(+[](uint32_t* count, const std::vector<MimoSignalChunk>&) {
+            (*count)++;
+        }).Bind(&csiRsRx));
+    uePhy->GetSpectrumPhy()->AddCsiRsMimoChunkProcessor(csiRsProcessor);
+
+    Simulator::Stop(MilliSeconds(400));
+    Simulator::Run();
+
+    NS_TEST_ASSERT_MSG_EQ(DynamicCast<NrUeNetDevice>(ueNetDev.Get(0))->GetRrc()->GetState(),
+                          NrUeRrc::CONNECTED_NORMALLY,
+                          "The UE should be connected");
+    NS_TEST_EXPECT_MSG_GT(csiRsRx, 0, "The UE should process the CSI-RS");
+    Simulator::Destroy();
+}
+
 NrCsiTestSuite::NrCsiTestSuite()
     : TestSuite("nr-test-csi")
 {
@@ -1329,6 +1433,7 @@ NrCsiTestSuite::NrCsiTestSuite()
     AddTestCase(new NrCsiRsAfterRadioLinkFailureTestCase(), Duration::QUICK);
     AddTestCase(new NrCsiRsAfterCellChangeTestCase(true), Duration::QUICK);
     AddTestCase(new NrCsiRsAfterCellChangeTestCase(false), Duration::QUICK);
+    AddTestCase(new NrCsiRsPropagationDelayTestCase(), Duration::QUICK);
 }
 
 // Allocate an instance of this TestSuite

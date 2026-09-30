@@ -2122,7 +2122,10 @@ NrSpectrumPhy::StartRxCsiRs(const Ptr<NrSpectrumSignalParametersCsiRs>& csiRsPar
         // declare the end of the reception of the CSI-RS signal
         Simulator::Schedule(csiRsParams->duration, &NrInterference::EndRx, m_interferenceCsiRs);
 
-        Simulator::Schedule(m_ctrlEndTime - Simulator::Now() + NanoSeconds(2),
+        // Check after the DL control, which tells whether the UE is scheduled in
+        // this slot; with a propagation delay, the CSI-RS sent at the end of the
+        // DL control arrives after the control ended on the UE timeline
+        Simulator::Schedule(std::max(m_ctrlEndTime - Simulator::Now(), Time(0)) + NanoSeconds(2),
                             &NrSpectrumPhy::CheckIfCsiImNeeded,
                             this,
                             csiRsParams);
