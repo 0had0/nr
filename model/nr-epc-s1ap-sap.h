@@ -138,6 +138,8 @@ class NR_EXPORT NrEpcS1apSapGnb : public NrEpcS1apSap
         NrQosFlow erabLevelQosParameters;  ///< Level QOS parameters
         Ipv4Address transportLayerAddress; ///< transport layer address
         uint32_t sgwTeid;                  ///< TEID
+        /// downlink TEID of the gNB; 0 means that the downlink uses sgwTeid as well
+        uint32_t gnbTeid{0};
     };
 
     /**

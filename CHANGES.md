@@ -63,6 +63,7 @@ us a note on ns-developers mailing list.
 - Following the ns-3 spectrum change that passes beamforming vectors explicitly (ns-3 issue #1369), ``NYUSpectrumPropagationLossModel`` and ``DistanceBasedThreeGppSpectrumPropagationLossModel`` overrides of ``DoCalcRxPowerSpectralDensity()`` and ``GetLongTerm()`` take the two beamforming vectors as parameters, and callers of ``CalcRxPowerSpectralDensity()`` and ``DoCalcRxPowerSpectralDensity()`` now pass them (typically ``array->GetBeamformingVector()``) instead of relying on the arrays' current state.
 
 - Add ``NrRanEpcHelper``, the new base class of ``NrNoBackhaulEpcHelper``, which installs the gNB side of the S1 and X2 interfaces without creating any core network node. Subclasses connect each gNB to their core network in ``NrRanEpcHelper::ConnectGnbToCore()``. ``NrNoBackhaulEpcHelper::DoAddX2Interface()`` is now inherited from ``NrRanEpcHelper``, and the ``X2Link*`` attributes are now defined by ``NrRanEpcHelper``.
+- Add ``NrEpcS1apSapGnb::ErabToBeSetupItem::gnbTeid``, the downlink TEID of a QoS flow at the gNB. When it is not set (zero), the downlink uses the same TEID as the uplink (``sgwTeid``), as with the built-in core network.
 
 ### Changed Behavior
 - A HARQ process now ends by transmission attempts instead of ``rv == 3``. The PHY clears the soft buffer when a new transport block arrives (NDI == 1) instead of when ``rv == 3``. RV can exceed 3 when ``MaxHarqReTx`` exceeds 3.

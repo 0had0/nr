@@ -196,6 +196,8 @@ NrEpcGnbApplication::DoUeContextRelease(uint16_t rnti)
         NS_LOG_INFO("RNTI: " << rnti << " erased from RNTI/QFI to TEID map");
         m_rqfiTeidMap.erase(rntiIt);
     }
+    // downlink TEIDs differing from the uplink ones
+    std::erase_if(m_teidRqfiMap, [rnti](const auto& entry) { return entry.second.m_rnti == rnti; });
 }
 
 void
@@ -226,8 +228,9 @@ NrEpcGnbApplication::DoInitialContextSetupRequest(
         m_rqfiTeidMap[rnti][erabIt->erabId] = params.gtpTeid;
         NS_LOG_INFO("Add entry to RNTI: " << rnti << " / QFI: " << +erabIt->erabId
                                           << " to TEID: " << params.gtpTeid << " map");
-        m_teidRqfiMap[params.gtpTeid] = rqfi;
-        NS_LOG_INFO("Add entry to TEID: " << params.gtpTeid << " to RNTI: " << rqfi.m_rnti
+        const uint32_t dlTeid = erabIt->gnbTeid != 0 ? erabIt->gnbTeid : params.gtpTeid;
+        m_teidRqfiMap[dlTeid] = rqfi;
+        NS_LOG_INFO("Add entry to TEID: " << dlTeid << " to RNTI: " << rqfi.m_rnti
                                           << " QFI: " << +rqfi.m_qfi << " map");
     }
 
