@@ -38,6 +38,31 @@ to an external core network, can be provided by an ``NrEpcHelper`` subclass whos
 test suite ``nr-core-connector`` shows a minimal example that interposes such an entity in
 front of the built-in core.
 
+``NrRanEpcHelper`` implements the RAN side of the interfaces for such subclasses, without
+creating any core network node: ``AddGnb()`` installs the ``NrEpcGnbApplication`` and the
+``NrEpcX2`` entity of each gNB and connects them to its RRC, ``AddX2Interface()`` creates the
+X2 links, and ``AddS1Interface()`` creates the S1-U endpoint of the gNB and then calls
+``ConnectGnbToCore()``, which subclasses implement to connect the ``NrEpcS1apSapMme`` and
+``NrEpcS1apSapGnb`` SAPs of the gNB application to their core network. The built-in core
+(``NrNoBackhaulEpcHelper`` and ``NrPointToPointEpcHelper``) is a subclass of
+``NrRanEpcHelper`` connecting the gNBs to its MME and SGW.
+
+The gNB user plane follows the N3 interface of 5G core networks:
+
+* the downlink TEID of a QoS flow can differ from the uplink one: the core network sets
+  ``NrEpcS1apSapGnb::ErabToBeSetupItem::gnbTeid`` (the TEID advertised for the gNB) along with
+  ``sgwTeid`` (the TEID of the UPF) in the Initial Context Setup Request; the built-in core
+  uses the same TEID in both directions;
+* the GTP-U packets carry the PDU Session Container extension header, with the QFI of the
+  packet (TS 29.281, TS 38.415), in both directions: the gNB adds it to the uplink packets, the
+  SGW of the built-in core to the downlink packets, and the gNB maps the downlink packets to
+  their QoS flow with it. ``NrGtpuHeader`` supports any chain of extension headers.
+
+For example, a connector to Open5GS 5G core networks, including roaming between a home and a
+visited network, is built on these classes outside of the nr module (in a separate ns-3 module,
+with the NGAP and NAS procedures run by a separate process). Since such core networks run in
+real time, the simulation must run in real time as well (``RealtimeSimulatorImpl``).
+
 QoS configuration
 =================
 
