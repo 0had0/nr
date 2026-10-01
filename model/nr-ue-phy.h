@@ -845,6 +845,12 @@ class NR_EXPORT NrUePhy : public NrPhy
      */
     void SendCtrlChannels(Time duration);
 
+    /**
+     * @brief Discard the CSI-RS channel and the averaged interference covariance, which
+     *        belong to the serving cell and bandwidth they were measured with.
+     */
+    void ResetCsiMeasurements();
+
     // SAP methods
     virtual void DoReset();
     void DoStartCellSearch(uint16_t arfcn);

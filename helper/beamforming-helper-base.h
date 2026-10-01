@@ -71,7 +71,8 @@ class NR_EXPORT BeamformingHelperBase : public Object
   protected:
     /**
      * @brief This function runs the beamforming algorithm among the provided gNB and UE
-     * device, and for a specified bwp index
+     * device, and for a specified bwp index. It does nothing if the UE is served by
+     * another cell.
      * @param gNbSpectrumPhy a pointer to SpectrumPhy of gNb device
      * @param ueSpectrumPhy a pointer to SpectrumPhy of UE device
      */

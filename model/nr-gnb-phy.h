@@ -247,6 +247,15 @@ class NR_EXPORT NrGnbPhy : public NrPhy
     bool RegisterUe(uint64_t imsi, const Ptr<NrUeNetDevice>& ueDevice);
 
     /**
+     * @brief Remove the UE from the list of this gnb UEs, and stop its CSI-RS.
+     *
+     * Usually called by the helper when a UE connects to another gnb.
+     * Unknown IMSIs are ignored.
+     * @param imsi IMSI of the device
+     */
+    void DeregisterUe(uint64_t imsi);
+
+    /**
      * Assign CSI-RS offset of a user
      * @param ueDevice the user device for which will be assign an offset value
      */

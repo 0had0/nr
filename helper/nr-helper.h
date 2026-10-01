@@ -21,6 +21,10 @@
 #include "ns3/nr-ue-cphy-sap.h"
 #include "ns3/object-factory.h"
 
+#include <map>
+#include <set>
+#include <utility>
+
 namespace ns3
 {
 
@@ -1157,6 +1161,36 @@ class NR_EXPORT NrHelper : public Object
      * @param gnbDevice the GNB device to which attach the UE
      */
     void DoAttachToGnb(const Ptr<NetDevice>& ueDevice, const Ptr<NetDevice>& gnbDevice);
+
+    /**
+     * @brief Register a UE at the gNB that serves it: the gNB PHYs (CSI-RS and beam
+     *        selection), the UE PMI search, and the beamforming task of the pair.
+     *
+     * @param ueNetDev the UE device
+     * @param gnbNetDev the gNB device that serves the UE
+     */
+    void RegisterUeAtGnb(const Ptr<NrUeNetDevice>& ueNetDev, const Ptr<NrGnbNetDevice>& gnbNetDev);
+
+    /**
+     * @brief Move the registration of a UE to the cell to which its RRC connected.
+     *
+     * Connected to the ConnectionEstablished and HandoverEndOk traces of the UE RRCs.
+     * After a radio link failure or a handover, a UE connects to a cell without
+     * AttachToGnb(); without a registration at its new gNB, it would get neither CSI-RS
+     * nor a beam from it.
+     *
+     * @param imsi the IMSI of the UE
+     * @param cellId the cell to which the UE connected
+     * @param rnti the RNTI of the UE in that cell
+     */
+    void UeConnectedToCell(uint64_t imsi, uint16_t cellId, uint16_t rnti);
+
+    std::map<uint16_t, Ptr<NrGnbNetDevice>> m_gnbDevices; //!< gNB devices of this helper by cell
+    std::map<uint64_t, Ptr<NrUeNetDevice>> m_ueDevices;   //!< UE devices of this helper by IMSI
+    /// gNB device at which each UE, by IMSI, is registered
+    std::map<uint64_t, Ptr<NrGnbNetDevice>> m_ueRegistrations;
+    /// Pairs of gNB and UE devices with a beamforming task
+    std::set<std::pair<Ptr<NrGnbNetDevice>, Ptr<NrUeNetDevice>>> m_beamformingTasks;
 
     ObjectFactory m_gnbNetDeviceFactory;            //!< NetDevice factory for gnb
     ObjectFactory m_ueNetDeviceFactory;             //!< NetDevice factory for ue

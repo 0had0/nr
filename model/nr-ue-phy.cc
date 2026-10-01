@@ -1517,8 +1517,16 @@ NrUePhy::DoReset()
     NS_LOG_FUNCTION(this);
     m_raPreambleId = 255; // value out of range
     m_isConnected = false;
-    m_avgIntCovMat = {};
+    ResetCsiMeasurements();
     PurgeStaleSlotAllocInfo();
+}
+
+void
+NrUePhy::ResetCsiMeasurements()
+{
+    NS_LOG_FUNCTION(this);
+    m_csiRsMimoSignal = {};
+    m_avgIntCovMat = {};
 }
 
 void
@@ -1553,6 +1561,7 @@ NrUePhy::DoSynchronizeWithGnb(uint16_t cellId)
 {
     NS_LOG_FUNCTION(this << cellId);
     DoSetCellId(cellId);
+    ResetCsiMeasurements();
     DoSetInitialBandwidth();
 }
 
@@ -1907,7 +1916,12 @@ NrUePhy::DoSetDlBandwidth(uint16_t dlBandwidth)
 {
     NS_LOG_FUNCTION(this << +dlBandwidth);
 
+    const auto rbNum = GetRbNum();
     SetChannelBandwidth(dlBandwidth);
+    if (GetRbNum() != rbNum)
+    {
+        ResetCsiMeasurements();
+    }
 
     NS_LOG_DEBUG("PHY reconfiguring. Result: "
                  << std::endl
@@ -2164,7 +2178,11 @@ NrUePhy::GenerateCsiRsCqi()
         NS_LOG_DEBUG("UE is disconnected, so not transmitting any CSI feedback.");
         return;
     }
-    NS_ASSERT(m_csiRsMimoSignal.m_chanMat.GetSize() != 0);
+    if (m_csiRsMimoSignal.m_chanMat.GetSize() == 0)
+    {
+        NS_LOG_DEBUG("The CSI-RS was discarded by a cell or bandwidth change.");
+        return;
+    }
     NrMimoSignal csiFeedbackSignal = m_csiRsMimoSignal;
     // if there is some old interference information use it,
     // otherwise, just use the plain CSI-RS signal for the CQI feedback
@@ -2194,6 +2212,11 @@ NrUePhy::CsiImEnded(const std::vector<MimoSignalChunk>& csiImSignalChunks)
     CalcAvgIntCovMat(&m_avgIntCovMat, csiFeedbackSignal.m_covMat);
     // CSI-IM does not have RX spectrum channel matrix, because it only contains the interference
     // hence the channel spectrum matrix to be used is from CSI-RS signal
+    if (m_csiRsMimoSignal.m_chanMat.GetSize() == 0)
+    {
+        NS_LOG_DEBUG("The CSI-RS of this CSI-IM was discarded by a cell or bandwidth change.");
+        return;
+    }
     if (m_alphaCovMat != 1)
     {
         csiFeedbackSignal.m_covMat = m_csiRsMimoSignal.m_covMat;
@@ -2221,11 +2244,10 @@ NrUePhy::PdschMimoReceived(const std::vector<MimoSignalChunk>& pdschMimoChunks)
     {
         csiFeedbackSignal.m_covMat = m_avgIntCovMat;
     }
-    // if CSI-RS enabled, use the spectrum channel matrix from CSI-RS signal
-    if (m_csiFeedbackType & CQI_CSI_RS)
+    // if CSI-RS enabled, use the spectrum channel matrix from CSI-RS signal, once the UE
+    // received a CSI-RS since it connected to the cell
+    if ((m_csiFeedbackType & CQI_CSI_RS) && m_csiRsMimoSignal.m_chanMat.GetSize() != 0)
     {
-        NS_ASSERT_MSG(m_csiRsMimoSignal.m_chanMat.GetSize(),
-                      "CSI-RS based channel matrix not available");
         csiFeedbackSignal.m_chanMat = m_csiRsMimoSignal.m_chanMat;
     }
 

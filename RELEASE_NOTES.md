@@ -154,6 +154,19 @@ Bugs fixed
 - Fixed ``ResourceAssignmentMatrix::GetAssignedResourcesToUe()`` reporting every
   resource as ``ResourceType::EMPTY``. It now reports the type each resource was
   assigned with. Covered by the ``nr-resource-assignment-matrix`` test suite.
+- Fixed UEs that connect to a cell without ``NrHelper::AttachToGnb()``, after a
+  handover or a radio link failure, getting neither CSI-RS nor a beam from
+  their new gNB. Only the gNB of ``AttachToGnb()`` registered a UE, so its new
+  gNB served it with a quasi-omni beam and transmitted no CSI-RS towards it,
+  the UE kept computing its CSI with the last CSI-RS of its previous cell, and
+  the beamforming kept steering the UE towards its previous gNB. ``NrHelper``
+  now registers a UE at the gNB of every cell it connects to.
+- Fixed the UE keeping the CSI-RS channel and the interference covariance of
+  its previous cell or bandwidth. A UE now discards them when it synchronizes
+  with a cell, resets after a radio link failure, or changes its number of
+  RBs, and computes its CSI with the PDSCH channel until the first CSI-RS of
+  its new cell. A CSI-IM triggered by a CSI-RS received before a bandwidth
+  change used to abort the simulation on a spectrum model mismatch.
 
 Release NR-v5.1
 ---------------

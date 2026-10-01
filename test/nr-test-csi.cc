@@ -1050,6 +1050,210 @@ NrCsiRsAfterRadioLinkFailureTestCase::DoRun()
     Simulator::Destroy();
 }
 
+/**
+ * @ingroup test
+ *
+ * Test that the CSI-RS and the beams follow a UE that connects to another cell. The
+ * helper used to register a UE only at the gNB of AttachToGnb(). After a handover or
+ * a radio link failure, the new gNB of the UE then transmitted no CSI-RS towards it,
+ * so the UE kept computing its CSI with the last CSI-RS of its previous cell, and the
+ * beamforming kept steering the UE towards its previous gNB. The test moves a UE to a
+ * second gNB, either by an X2 handover or by a radio link failure followed by a new
+ * connection, and checks that only the target gNB transmits CSI-RS towards it, that
+ * the UE processes them (including the CSI-IM that they trigger), and that the UE
+ * beam points to the target gNB.
+ */
+class NrCsiRsAfterCellChangeTestCase : public TestCase
+{
+  public:
+    /**
+     * Constructor.
+     *
+     * @param handover Whether the UE changes cell by an X2 handover, or by a radio
+     *        link failure and a new connection.
+     */
+    NrCsiRsAfterCellChangeTestCase(bool handover)
+        : TestCase(std::string("CSI-RS, CSI-IM and beamforming follow a UE that ") +
+                   (handover ? "is handed over" : "reconnects to another cell after an RLF")),
+          m_handover(handover)
+    {
+    }
+
+  private:
+    void DoRun() override;
+
+    bool m_handover; ///< Whether the UE changes cell by an X2 handover
+};
+
+void
+NrCsiRsAfterCellChangeTestCase::DoRun()
+{
+    RngSeedManager::SetSeed(1);
+    RngSeedManager::SetRun(1);
+    Config::SetDefault("ns3::NrPmSearch::RankLimit", UintegerValue(4));
+    Config::SetDefault("ns3::NrPmSearch::SubbandSize", UintegerValue(16));
+    Config::SetDefault("ns3::NrPmSearchFull::CodebookType",
+                       TypeIdValue(TypeId::LookupByName("ns3::NrCbTypeOneSp")));
+    // Fast radio link failure detection for the connection-loss variant. The handover
+    // variant disables it instead (long T310): the commanded handover sends the UE to a
+    // cell whose DL ctrl is weaker than the source's at the UE position (both gNB panels
+    // face +x, so the UE sits in the back lobe of the target), and radio link monitoring
+    // would tear the new connection down before the CSI-RS and beam checks run. Radio
+    // link monitoring is not the subject of this test case.
+    Config::SetDefault("ns3::NrUeRrc::N310", UintegerValue(1));
+    Config::SetDefault("ns3::NrUeRrc::N311", UintegerValue(1));
+    Config::SetDefault("ns3::NrUeRrc::T310",
+                       m_handover ? TimeValue(Seconds(2)) : TimeValue(MilliSeconds(100)));
+    Config::SetDefault("ns3::NrUePhy::NumQoutEvalSf", UintegerValue(10));
+    Config::SetDefault("ns3::NrUePhy::NumQinEvalSf", UintegerValue(10));
+    const Time cellChangeTime = MilliSeconds(300);
+    // Margin for the UE to connect to the target cell before the checks
+    const Time afterCellChange = cellChangeTime + MilliSeconds(m_handover ? 100 : 500);
+    const Time stopTime = afterCellChange + MilliSeconds(400);
+
+    NodeContainer gnbContainer(2);
+    NodeContainer ueContainer(1);
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    mobility.Install(gnbContainer);
+    mobility.Install(ueContainer);
+    auto ueMobility = ueContainer.Get(0)->GetObject<MobilityModel>();
+    gnbContainer.Get(0)->GetObject<MobilityModel>()->SetPosition(Vector(0, 0, 10));
+    if (m_handover)
+    {
+        gnbContainer.Get(1)->GetObject<MobilityModel>()->SetPosition(Vector(60, 0, 10));
+        // Closer to the target gNB, so that the handover does not depend on the shadowing
+        ueMobility->SetPosition(Vector(45, 5, 1.5));
+    }
+    else
+    {
+        // The UE jumps out of the coverage of the first gNB, next to the second one
+        gnbContainer.Get(1)->GetObject<MobilityModel>()->SetPosition(Vector(15000, 0, 10));
+        ueMobility->SetPosition(Vector(20, 5, 1.5));
+        Simulator::Schedule(cellChangeTime,
+                            [ueMobility]() { ueMobility->SetPosition(Vector(14980, 5, 1.5)); });
+    }
+
+    auto nrEpcHelper = CreateObject<NrPointToPointEpcHelper>();
+    auto idealBeamformingHelper = CreateObject<IdealBeamformingHelper>();
+    auto nrHelper = CreateObject<NrHelper>();
+    nrHelper->SetBeamformingHelper(idealBeamformingHelper);
+    nrHelper->SetEpcHelper(nrEpcHelper);
+    nrHelper->SetAttribute("UseIdealRrc", BooleanValue(true));
+    nrHelper->SetAttribute("CsiFeedbackFlags",
+                           UintegerValue(CQI_PDSCH_MIMO | CQI_CSI_RS | CQI_CSI_IM));
+    idealBeamformingHelper->SetAttribute("BeamformingMethod",
+                                         TypeIdValue(DirectPathBeamforming::GetTypeId()));
+
+    NrHelper::AntennaParams apUe;
+    apUe.antennaElem = "ns3::ThreeGppAntennaModel";
+    apUe.nAntCols = 2;
+    apUe.nAntRows = 2;
+    apUe.nHorizPorts = 2;
+    apUe.nVertPorts = 1;
+    apUe.isDualPolarized = true;
+    NrHelper::AntennaParams apGnb = apUe;
+    apGnb.nAntCols = 4;
+    nrHelper->SetupGnbAntennas(apGnb);
+    nrHelper->SetupUeAntennas(apUe);
+    nrHelper->SetGnbPhyAttribute("Numerology", UintegerValue(0));
+
+    CcBwpCreator ccBwpCreator;
+    CcBwpCreator::SimpleOperationBandConf bandConf(3.5e9, 20e6, 1);
+    OperationBandInfo band = ccBwpCreator.CreateOperationBandContiguousCc(bandConf);
+    auto channelHelper = CreateObject<NrChannelHelper>();
+    channelHelper->ConfigureFactories("UMi", "LOS", "ThreeGpp");
+    channelHelper->AssignChannelsToBands({band});
+    auto allBwps = CcBwpCreator::GetAllBwps({band});
+
+    NetDeviceContainer gnbNetDev = nrHelper->InstallGnbDevice(gnbContainer, allBwps);
+    NetDeviceContainer ueNetDev = nrHelper->InstallUeDevice(ueContainer, allBwps);
+    nrHelper->AssignStreams({.assignEpc = true, .gnbDevs = gnbNetDev, .ueDevs = ueNetDev});
+
+    InternetStackHelper internet;
+    internet.Install(ueContainer);
+    nrEpcHelper->AssignUeIpv4Address(ueNetDev);
+    nrHelper->AttachToGnb(ueNetDev.Get(0), gnbNetDev.Get(0));
+    if (m_handover)
+    {
+        nrHelper->AddX2Interface(gnbContainer);
+        nrHelper->HandoverRequest(cellChangeTime,
+                                  ueNetDev.Get(0),
+                                  gnbNetDev.Get(0),
+                                  gnbNetDev.Get(1));
+    }
+
+    const auto sourceCellId = DynamicCast<NrGnbNetDevice>(gnbNetDev.Get(0))->GetCellId();
+    const auto targetCellId = DynamicCast<NrGnbNetDevice>(gnbNetDev.Get(1))->GetCellId();
+    auto uePhy = DynamicCast<NrUeNetDevice>(ueNetDev.Get(0))->GetPhy(0);
+
+    // CSI-RS transmissions per cell after the cell change; the UE is the only one
+    std::map<uint16_t, uint32_t> csiRsTx;
+    auto channel = uePhy->GetSpectrumPhy()->GetSpectrumChannel();
+    channel->TraceConnectWithoutContext(
+        "TxSigParams",
+        MakeCallback(+[](std::map<uint16_t, uint32_t>* count,
+                         Time after,
+                         Ptr<SpectrumSignalParameters> params) {
+            auto csiRs = DynamicCast<NrSpectrumSignalParametersCsiRs>(params);
+            if (csiRs && Simulator::Now() > after)
+            {
+                (*count)[csiRs->cellId]++;
+            }
+        }).Bind(&csiRsTx, afterCellChange));
+
+    // CSI-RS processed by the UE after the cell change
+    uint32_t csiRsRx = 0;
+    auto csiRsProcessor = Create<NrMimoChunkProcessor>();
+    csiRsProcessor->AddCallback(
+        MakeCallback(+[](uint32_t* count, Time after, const std::vector<MimoSignalChunk>&) {
+            if (Simulator::Now() > after)
+            {
+                (*count)++;
+            }
+        }).Bind(&csiRsRx, afterCellChange));
+    uePhy->GetSpectrumPhy()->AddCsiRsMimoChunkProcessor(csiRsProcessor);
+
+    // CSI-IM measured by the UE after the cell change
+    uint32_t csiImRx = 0;
+    auto csiImProcessor = Create<NrMimoChunkProcessor>();
+    csiImProcessor->AddCallback(
+        MakeCallback(+[](uint32_t* count, Time after, const std::vector<MimoSignalChunk>&) {
+            if (Simulator::Now() > after)
+            {
+                (*count)++;
+            }
+        }).Bind(&csiImRx, afterCellChange));
+    uePhy->GetSpectrumPhy()->AddCsiImMimoChunkProcessor(csiImProcessor);
+
+    Simulator::Stop(stopTime);
+    Simulator::Run();
+
+    NS_TEST_ASSERT_MSG_EQ(uePhy->GetCellId(), targetCellId, "The UE should change cell");
+    NS_TEST_ASSERT_MSG_EQ(DynamicCast<NrUeNetDevice>(ueNetDev.Get(0))->GetRrc()->GetState(),
+                          NrUeRrc::CONNECTED_NORMALLY,
+                          "The UE should be connected to the target cell");
+    NS_TEST_EXPECT_MSG_EQ(csiRsTx[sourceCellId],
+                          0,
+                          "The source gNB should stop the CSI-RS towards the UE");
+    NS_TEST_EXPECT_MSG_GT(csiRsTx[targetCellId],
+                          0,
+                          "The target gNB should transmit CSI-RS towards the UE");
+    NS_TEST_EXPECT_MSG_GT(csiRsRx, 0, "The UE should process the CSI-RS of the target gNB");
+    NS_TEST_EXPECT_MSG_GT(csiImRx, 0, "The UE should measure CSI-IM in the target cell");
+
+    auto ueBeamManager = uePhy->GetSpectrumPhy()->GetBeamManager();
+    const auto towardsTarget = ueBeamManager->GetBeamformingVector(gnbNetDev.Get(1));
+    const auto towardsSource = ueBeamManager->GetBeamformingVector(gnbNetDev.Get(0));
+    NS_TEST_EXPECT_MSG_EQ((towardsTarget != towardsSource),
+                          true,
+                          "The UE should have a beam towards each gNB");
+    NS_TEST_EXPECT_MSG_EQ((ueBeamManager->GetCurrentBeamformingVector() == towardsTarget),
+                          true,
+                          "The UE beam should point to the target gNB");
+    Simulator::Destroy();
+}
+
 NrCsiTestSuite::NrCsiTestSuite()
     : TestSuite("nr-test-csi")
 {
@@ -1123,6 +1327,8 @@ NrCsiTestSuite::NrCsiTestSuite()
         AddTestCase(new NrCsiTestCase(param), param.m_duration);
     }
     AddTestCase(new NrCsiRsAfterRadioLinkFailureTestCase(), Duration::QUICK);
+    AddTestCase(new NrCsiRsAfterCellChangeTestCase(true), Duration::QUICK);
+    AddTestCase(new NrCsiRsAfterCellChangeTestCase(false), Duration::QUICK);
 }
 
 // Allocate an instance of this TestSuite

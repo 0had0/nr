@@ -108,6 +108,16 @@ NrHelper::~NrHelper()
         m_beamformingHelper->Dispose();
     }
     m_beamformingHelper = nullptr;
+    for (const auto& [imsi, ueNetDev] : m_ueDevices)
+    {
+        if (auto rrc = ueNetDev->GetRrc())
+        {
+            rrc->TraceDisconnectWithoutContext("ConnectionEstablished",
+                                               MakeCallback(&NrHelper::UeConnectedToCell, this));
+            rrc->TraceDisconnectWithoutContext("HandoverEndOk",
+                                               MakeCallback(&NrHelper::UeConnectedToCell, this));
+        }
+    }
 }
 
 TypeId
@@ -643,6 +653,12 @@ NrHelper::InstallSingleUeDevice(
     }
 
     rrc->InitializeSrb0();
+
+    m_ueDevices[dev->GetImsi()] = dev;
+    rrc->TraceConnectWithoutContext("ConnectionEstablished",
+                                    MakeCallback(&NrHelper::UeConnectedToCell, this));
+    rrc->TraceConnectWithoutContext("HandoverEndOk",
+                                    MakeCallback(&NrHelper::UeConnectedToCell, this));
     return dev;
 }
 
@@ -786,6 +802,7 @@ NrHelper::InstallSingleGnbDevice(
     uint16_t cellId = m_cellIdCounter++; // New cellId
     dev->SetCellId(cellId);
     dev->SetNode(n);
+    m_gnbDevices[cellId] = dev;
 
     // create component carrier map for this gNB device
     std::map<uint8_t, Ptr<BandwidthPartGnb>> ccMap;
@@ -1228,7 +1245,6 @@ NrHelper::DoAttachToGnb(const Ptr<NetDevice>& ueDevice, const Ptr<NetDevice>& gn
 
     for (uint32_t i = 0; i < gnbNetDev->GetCcMapSize(); ++i)
     {
-        gnbNetDev->GetPhy(i)->RegisterUe(ueNetDev->GetImsi(), ueNetDev);
         ueNetDev->GetPhy(i)->RegisterToGnb(gnbNetDev->GetCellId());
         const auto& gnbSched = gnbNetDev->GetScheduler(i);
         const auto& gnbPhy = gnbNetDev->GetPhy(i);
@@ -1248,6 +1264,32 @@ NrHelper::DoAttachToGnb(const Ptr<NetDevice>& ueDevice, const Ptr<NetDevice>& gn
 
         Ptr<NrEpcUeNas> ueNas = ueNetDev->GetNas();
         ueNas->Connect(gnbNetDev->GetCellId(), gnbNetDev->GetBwpArfcn(i));
+    }
+
+    // The default QoS flow is an IP PDU session, whose rule classifies packets by
+    // their IP headers, so it is activated only for a UE that has an IP stack. A UE
+    // reaching the network over an unstructured session alone has none.
+    Ptr<Node> ueNode = ueDevice->GetNode();
+    if (m_nrEpcHelper && (ueNode->GetObject<Ipv4>() || ueNode->GetObject<Ipv6>()))
+    {
+        // activate default QoS flow, in the home network of the UE
+        m_ueEpcHelpers.at(ueDevice)->ActivateQosFlow(ueDevice,
+                                                     ueNetDev->GetImsi(),
+                                                     NrQosRule::Default(),
+                                                     NrQosFlow(NrQosFlow::NGBR_VIDEO_TCP_DEFAULT));
+    }
+
+    RegisterUeAtGnb(ueNetDev, gnbNetDev);
+}
+
+void
+NrHelper::RegisterUeAtGnb(const Ptr<NrUeNetDevice>& ueNetDev, const Ptr<NrGnbNetDevice>& gnbNetDev)
+{
+    NS_LOG_FUNCTION(this << ueNetDev->GetImsi() << gnbNetDev->GetCellId());
+
+    for (uint32_t i = 0; i < gnbNetDev->GetCcMapSize(); ++i)
+    {
+        gnbNetDev->GetPhy(i)->RegisterUe(ueNetDev->GetImsi(), ueNetDev);
         if (IsMimoFeedbackEnabled())
         {
             // Initialize parameters for MIMO precoding matrix search (PMI feedback)
@@ -1265,29 +1307,50 @@ NrHelper::DoAttachToGnb(const Ptr<NetDevice>& ueDevice, const Ptr<NetDevice>& gn
         }
     }
 
-    // The default QoS flow is an IP PDU session, whose rule classifies packets by
-    // their IP headers, so it is activated only for a UE that has an IP stack. A UE
-    // reaching the network over an unstructured session alone has none.
-    Ptr<Node> ueNode = ueDevice->GetNode();
-    if (m_nrEpcHelper && (ueNode->GetObject<Ipv4>() || ueNode->GetObject<Ipv6>()))
-    {
-        // activate default QoS flow, in the home network of the UE
-        m_ueEpcHelpers.at(ueDevice)->ActivateQosFlow(ueDevice,
-                                                     ueNetDev->GetImsi(),
-                                                     NrQosRule::Default(),
-                                                     NrQosFlow(NrQosFlow::NGBR_VIDEO_TCP_DEFAULT));
-    }
-
     // tricks needed for the simplified LTE-only simulations
     // if (m_nrEpcHelper == 0)
     //{
     ueNetDev->SetTargetGnb(gnbNetDev);
     //}
+    m_ueRegistrations[ueNetDev->GetImsi()] = gnbNetDev;
 
-    if (m_beamformingHelper)
+    // A UE returning to a cell keeps the beamforming task of its earlier connection
+    if (m_beamformingHelper && m_beamformingTasks.emplace(gnbNetDev, ueNetDev).second)
     {
         m_beamformingHelper->AddBeamformingTask(gnbNetDev, ueNetDev);
     }
+}
+
+void
+NrHelper::UeConnectedToCell(uint64_t imsi, uint16_t cellId, uint16_t rnti)
+{
+    NS_LOG_FUNCTION(this << imsi << cellId << rnti);
+
+    auto itUe = m_ueDevices.find(imsi);
+    auto itGnb = m_gnbDevices.find(cellId);
+    if (itUe == m_ueDevices.end() || itGnb == m_gnbDevices.end())
+    {
+        return;
+    }
+    const auto& ueNetDev = itUe->second;
+    const auto& gnbNetDev = itGnb->second;
+    // The UE RRC updates the target gNB of the UE device itself, so the cell where the
+    // UE is registered is tracked here
+    auto itRegistered = m_ueRegistrations.find(imsi);
+    if (itRegistered != m_ueRegistrations.end())
+    {
+        if (itRegistered->second == gnbNetDev)
+        {
+            return;
+        }
+        for (uint32_t i = 0; i < itRegistered->second->GetCcMapSize(); ++i)
+        {
+            itRegistered->second->GetPhy(i)->DeregisterUe(imsi);
+        }
+    }
+    NS_LOG_INFO("UE " << imsi << " connected to cell " << cellId << " with RNTI " << rnti
+                      << ", registering it at its gNB");
+    RegisterUeAtGnb(ueNetDev, gnbNetDev);
 }
 
 uint8_t

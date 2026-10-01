@@ -1905,6 +1905,25 @@ NrGnbPhy::RegisterUe(uint64_t imsi, const Ptr<NrUeNetDevice>& ueDevice)
 }
 
 void
+NrGnbPhy::DeregisterUe(uint64_t imsi)
+{
+    NS_LOG_FUNCTION(this << imsi);
+    if (m_ueAttached.erase(imsi) == 0)
+    {
+        return;
+    }
+    auto it = std::find_if(m_deviceMap.begin(), m_deviceMap.end(), [imsi](const auto& ueDevice) {
+        return ueDevice->GetImsi() == imsi;
+    });
+    NS_ASSERT_MSG(it != m_deviceMap.end(), "Registered UE without a device");
+    for (auto& [offset, ues] : m_csiRsOffsetToUes)
+    {
+        ues.erase(*it);
+    }
+    m_deviceMap.erase(it);
+}
+
+void
 NrGnbPhy::PhyDataPacketReceived(const Ptr<Packet>& p)
 {
     Simulator::ScheduleWithContext(m_netDevice->GetNode()->GetId(),

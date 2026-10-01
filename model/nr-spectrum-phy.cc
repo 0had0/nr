@@ -2134,6 +2134,14 @@ NrSpectrumPhy::CheckIfCsiImNeeded(const Ptr<NrSpectrumSignalParametersCsiRs>& cs
 {
     NS_LOG_FUNCTION(this);
 
+    // The UE may have changed its bandwidth, and so its spectrum model, since it received
+    // the CSI-RS, for example when it connects to a cell; that CSI-RS is then stale
+    if (csiRsParams->psd->GetSpectrumModel() != m_rxSpectrumModel)
+    {
+        NS_LOG_DEBUG("Ignoring a CSI-RS received before a bandwidth change");
+        return;
+    }
+
     Ptr<NrUePhy> nrUePhy = DynamicCast<NrUePhy>(m_phy);
     bool pdschCsiEnabled = nrUePhy->GetCsiFeedbackType() & CsiFeedbackFlag::CQI_PDSCH_MIMO;
 
