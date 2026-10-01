@@ -11,6 +11,8 @@
 #include "ns3/simulator.h"
 
 #include <algorithm>
+#include <cmath>
+#include <complex>
 
 NS_LOG_COMPONENT_DEFINE("NrInterference");
 
@@ -491,7 +493,19 @@ NrInterference::AddInterference(NrCovMat& covMat, Ptr<const SpectrumSignalParame
     }
     else
     {
-        covMat.AddInterferenceSignal(chanSpct);
+        // Every port of the channel matrix carries the full transmit power spectral density,
+        // and precoders are normalized to the total transmit power. Without precoding, the
+        // transmit power is split evenly across the transmit ports.
+        const auto nTxPorts = chanSpct.GetNumCols();
+        if (nTxPorts > 1)
+        {
+            covMat.AddInterferenceSignal(chanSpct *
+                                         std::complex<double>{1.0 / std::sqrt(nTxPorts), 0.0});
+        }
+        else
+        {
+            covMat.AddInterferenceSignal(chanSpct);
+        }
     }
 }
 

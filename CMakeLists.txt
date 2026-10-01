@@ -512,6 +512,7 @@ set(test_sources
     test/nr-ul-sr-retransmission-test.cc
     test/nr-interference-overlap-test.cc
     test/nr-interference-saturating-signal-test.cc
+    test/nr-interference-unprecoded-test.cc
     test/nr-ue-handover-interference-test.cc
     test/nr-ue-mac-stale-bsr-test.cc
     test/nr-x2-forwarding-drop-test.cc

@@ -167,6 +167,14 @@ Bugs fixed
   RBs, and computes its CSI with the PDSCH channel until the first CSI-RS of
   its new cell. A CSI-IM triggered by a CSI-RS received before a bandwidth
   change used to abort the simulation on a spectrum model mismatch.
+- Fixed the MIMO SINR with interferers without precoding, like the DL control
+  and the CSI-RS of neighbor cells, which counted every transmit port at the
+  full transmit power: an interferer of N ports weighed N times its power (12
+  dB for a dual-polarized gNB with 8 horizontal ports), while the desired
+  signal and precoded interferers carry the transmit power once. The power of
+  a signal without precoding is now split evenly across its transmit ports.
+- Fixed the CSI-IM based CSI using the interference covariance measured with
+  the CSI-RS instead of the averaged one when ``NrUePhy::AlphaCovMat`` is not 1.
 
 Release NR-v5.1
 ---------------

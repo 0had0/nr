@@ -2219,7 +2219,7 @@ NrUePhy::CsiImEnded(const std::vector<MimoSignalChunk>& csiImSignalChunks)
     }
     if (m_alphaCovMat != 1)
     {
-        csiFeedbackSignal.m_covMat = m_csiRsMimoSignal.m_covMat;
+        csiFeedbackSignal.m_covMat = m_avgIntCovMat;
     }
     csiFeedbackSignal.m_chanMat = m_csiRsMimoSignal.m_chanMat;
     TriggerDlCqiGeneration(csiFeedbackSignal, NrPmSearch::PmiUpdate(true, true));
