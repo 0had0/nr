@@ -234,8 +234,9 @@ class NR_EXPORT NrEpcGnbApplication : public Application
      *
      * @param packet packet to be sent
      * @param teid the Tunnel Endpoint Identifier
+     * @param qfi the QoS flow identifier
      */
-    void SendToS1uSocket(Ptr<Packet> packet, uint32_t teid);
+    void SendToS1uSocket(Ptr<Packet> packet, uint32_t teid, uint8_t qfi);
 
     /**
      * internal method used for the actual setup of the S1 Bearer

@@ -19,8 +19,8 @@ through a ``VirtualNetDevice``).
 
 User plane (S5-U)
 =================
-S5-U encapsulates the end-to-end IP packets in GTP-U/UDP/IP (UDP port 2152) using the ``NrGtpuHeader``
-(identical to the LTE GTP-U header, with no NR PDU-session extension header). The data path uses a
+S5-U encapsulates the end-to-end IP packets in GTP-U/UDP/IP (UDP port 2152) using the ``NrGtpuHeader``,
+without extension header (the PDU Session Container is only carried on S1-U). The data path uses a
 single TEID end-to-end: the SGW does not translate between an S1-U and an S5-U TEID in the data
 plane. As on S1-U, EPS-bearer QoS is **not** enforced on the link.
 

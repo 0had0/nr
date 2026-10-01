@@ -186,6 +186,8 @@ NrEpcSgwApplication::SendToS1uSocket(Ptr<Packet> packet, Ipv4Address gnbAddr, ui
 
     NrGtpuHeader gtpu;
     gtpu.SetTeid(teid);
+    // the QFI of the packet, on the N3 interface (TS 38.415)
+    gtpu.SetPduSessionContainer(NrGtpuHeader::DL_PDU_SESSION_INFORMATION, m_qfiByTeidMap.at(teid));
     // From 3GPP TS 29.281 v10.0.0 Section 5.1
     // Length of the payload + the non obligatory GTP-U header
     gtpu.SetLength(packet->GetSize() + gtpu.GetSerializedSize() - 8);
@@ -255,6 +257,7 @@ NrEpcSgwApplication::DoRecvCreateSessionRequest(Ptr<Packet> packet)
 
         NS_LOG_DEBUG("  TEID " << teid);
         m_gnbByTeidMap[teid] = gnbAddr;
+        m_qfiByTeidMap[teid] = flowContext.qfi;
 
         NrGtpcCreateSessionRequestMessage::FlowContextToBeCreated flowContextOut;
         flowContextOut.sgwS5uFteid.interfaceType = NrGtpcHeader::S5_SGW_GTPU;

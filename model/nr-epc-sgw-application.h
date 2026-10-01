@@ -253,6 +253,11 @@ class NR_EXPORT NrEpcSgwApplication : public Application
     std::map<uint32_t, Ipv4Address> m_gnbByTeidMap;
 
     /**
+     * Map for QFI by TEID
+     */
+    std::map<uint32_t, uint8_t> m_qfiByTeidMap;
+
+    /**
      * MME S11 FTEID by SGW S5C TEID
      */
     std::map<uint32_t, NrGtpcHeader::Fteid_t> m_mmeS11FteidBySgwS5cTeid;

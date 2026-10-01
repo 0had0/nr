@@ -64,8 +64,13 @@ us a note on ns-developers mailing list.
 
 - Add ``NrRanEpcHelper``, the new base class of ``NrNoBackhaulEpcHelper``, which installs the gNB side of the S1 and X2 interfaces without creating any core network node. Subclasses connect each gNB to their core network in ``NrRanEpcHelper::ConnectGnbToCore()``. ``NrNoBackhaulEpcHelper::DoAddX2Interface()`` is now inherited from ``NrRanEpcHelper``, and the ``X2Link*`` attributes are now defined by ``NrRanEpcHelper``.
 - Add ``NrEpcS1apSapGnb::ErabToBeSetupItem::gnbTeid``, the downlink TEID of a QoS flow at the gNB. When it is not set (zero), the downlink uses the same TEID as the uplink (``sgwTeid``), as with the built-in core network.
+- Add support for GTP-U extension headers in ``NrGtpuHeader`` (``AddExtensionHeader()``, ``GetExtensionHeaders()``), and for the PDU Session Container extension header (``SetPduSessionContainer()``, ``HasPduSessionContainer()``, ``GetPduType()``, ``GetQfi()``), which carries the QFI on the N3 interface.
+- ``NrGtpuHeader::SetExtensionHeaderFlag()`` and ``NrGtpuHeader::SetNextExtensionType()`` are removed: the E flag and the next extension header type are now derived from the extension headers added with ``AddExtensionHeader()``.
 
 ### Changed Behavior
+
+- The GTP-U packets between the gNBs and the SGW now carry the PDU Session Container extension header, with the QFI, in both directions (4 more octets per packet), and the gNB maps the downlink packets to their QoS flow with it.
+- ``NrGtpuHeader`` now omits the optional fields when none of the E, S and PN flags is set, and no longer sets the spare bit of the first octet (TS 29.281).
 - A HARQ process now ends by transmission attempts instead of ``rv == 3``. The PHY clears the soft buffer when a new transport block arrives (NDI == 1) instead of when ``rv == 3``. RV can exceed 3 when ``MaxHarqReTx`` exceeds 3.
 - ``TrafficGeneratorNgmnVoip`` now sends one voice packet per encoder frame (``EncoderFrameLength``, 20 ms by default) during talk spurts, as the NGMN VoIP model specifies, instead of one every ``VoicePayload`` * 8 / 12200 seconds (26.2 ms with the default 40-byte payload). With the default attributes the average offered rate rises from about 6.5 kbit/s to about 8.4 kbit/s (16 kbit/s in talk spurts, 0.75 kbit/s of SID packets in silence, voice activity factor 0.5); the ``traffic-generator`` test expectation is updated accordingly.
 - ``TrafficGenerator`` now accepts a next packet size of zero from a generator, scheduling the next packet without sending one, and logs a warning instead of asserting when the socket fails to send.

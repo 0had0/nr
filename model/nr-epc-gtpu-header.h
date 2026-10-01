@@ -12,6 +12,8 @@
 #include "ns3/nr-export.h"
 #include "ns3/ptr.h"
 
+#include <vector>
+
 namespace ns3
 {
 
@@ -41,7 +43,7 @@ class NR_EXPORT NrGtpuHeader : public Header
     void Print(std::ostream& os) const override;
 
     /**
-     * Get extension header flag function
+     * Get the extension header flag, set when the header has extension headers.
      * @returns the extension header flag
      */
     bool GetExtensionHeaderFlag() const;
@@ -66,8 +68,8 @@ class NR_EXPORT NrGtpuHeader : public Header
      */
     bool GetNPduNumberFlag() const;
     /**
-     * Get next extension type function
-     * @returns the next extension type
+     * Get the type of the first extension header.
+     * @returns the next extension type, 0 if there is no extension header
      */
     uint8_t GetNextExtensionType() const;
     /**
@@ -96,11 +98,6 @@ class NR_EXPORT NrGtpuHeader : public Header
      */
     uint8_t GetVersion() const;
     /**
-     * Set extension header flag function
-     * @param extensionHeaderFlag
-     */
-    void SetExtensionHeaderFlag(bool extensionHeaderFlag);
-    /**
      * Set the length in octets of the payload
      * @param length the length
      */
@@ -120,11 +117,6 @@ class NR_EXPORT NrGtpuHeader : public Header
      * @param nPduNumberFlag the NPDU number flag
      */
     void SetNPduNumberFlag(bool nPduNumberFlag);
-    /**
-     * Set next extension type function
-     * @param nextExtensionType the next extension type
-     */
-    void SetNextExtensionType(uint8_t nextExtensionType);
     /**
      * Set protocol type function
      * @param protocolType the protocol type
@@ -151,6 +143,67 @@ class NR_EXPORT NrGtpuHeader : public Header
      */
     void SetVersion(uint8_t version);
 
+    /// An extension header (TS 29.281, section 5.2)
+    struct ExtensionHeader
+    {
+        uint8_t type; ///< the type of the extension header
+        /// the content of the extension header, padded with zeros so that the extension header
+        /// (length, content and next extension header type) is a multiple of 4 octets
+        std::vector<uint8_t> content;
+
+        /**
+         * Equality operator.
+         * @param other another extension header
+         * @return true if both are equal
+         */
+        bool operator==(const ExtensionHeader& other) const = default;
+    };
+
+    /**
+     * Add an extension header, after the ones already added.
+     * @param type the type of the extension header (not 0)
+     * @param content the content of the extension header, which is padded with zeros if needed
+     */
+    void AddExtensionHeader(uint8_t type, const std::vector<uint8_t>& content);
+
+    /**
+     * @return the extension headers, in order
+     */
+    const std::vector<ExtensionHeader>& GetExtensionHeaders() const;
+
+    /// Type of the PDU Session Container extension header (TS 29.281, section 5.2.1)
+    static constexpr uint8_t PDU_SESSION_CONTAINER{0x85};
+
+    /// PDU type of the PDU Session Container (TS 38.415, section 5.5.3.1)
+    enum PduType : uint8_t
+    {
+        DL_PDU_SESSION_INFORMATION = 0, ///< downlink PDU session information
+        UL_PDU_SESSION_INFORMATION = 1, ///< uplink PDU session information
+    };
+
+    /**
+     * Set the PDU Session Container extension header (TS 38.415, section 5.5.2), which carries
+     * the QFI of the packet on the N3 interface, replacing the existing one if any.
+     * @param pduType the PDU type
+     * @param qfi the QoS flow identifier
+     */
+    void SetPduSessionContainer(PduType pduType, uint8_t qfi);
+
+    /**
+     * @return true if the header has a PDU Session Container extension header
+     */
+    bool HasPduSessionContainer() const;
+
+    /**
+     * @return the PDU type of the PDU Session Container extension header, which must exist
+     */
+    PduType GetPduType() const;
+
+    /**
+     * @return the QFI of the PDU Session Container extension header, which must exist
+     */
+    uint8_t GetQfi() const;
+
     /**
      * Equality operator.
      *
@@ -160,6 +213,17 @@ class NR_EXPORT NrGtpuHeader : public Header
     bool operator==(const NrGtpuHeader& b) const;
 
   private:
+    /**
+     * @return whether the optional fields (sequence number, N-PDU number and next extension
+     * header type) are present, i.e., whether any of the E, S and PN flags is set
+     */
+    bool HasOptionalFields() const;
+
+    /**
+     * @return the PDU Session Container extension header, or nullptr if there is none
+     */
+    const ExtensionHeader* FindPduSessionContainer() const;
+
     /**
      * This field is used to determine the version of the GTPU-U protocol. The version number shall
      * be set to 1.
@@ -171,14 +235,6 @@ class NR_EXPORT NrGtpuHeader : public Header
      * PT is '0').
      */
     bool m_protocolType;
-
-    /**
-     * This flag indicates the presence of a meaningful value of the Next Extension Header
-     * field. When it is set to '0', the Next Extension Header field either is not present
-     * or, if present, shall not be interpreted. When it is set to '1', the Next Extension
-     *  Header field is present, and shall be interpreted
-     */
-    bool m_extensionHeaderFlag;
 
     /**
      * This flag indicates the presence of a meaningful value of the Sequence Number field.
@@ -225,11 +281,7 @@ class NR_EXPORT NrGtpuHeader : public Header
      * of communication between the MS and the SGSN
      */
     uint8_t m_nPduNumber;
-    /**
-     * This field defines the type of Extension Header that follows this field in
-     * the GTP-PDU
-     */
-    uint8_t m_nextExtensionType;
+    std::vector<ExtensionHeader> m_extensionHeaders; ///< the extension headers, in order
 };
 
 } // namespace ns3

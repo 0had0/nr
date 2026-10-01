@@ -49,6 +49,10 @@ New user-visible features
   connector to a 5G core network such as Open5GS) are plugged in through
   ``NrRanEpcHelper::ConnectGnbToCore()``. ``NrNoBackhaulEpcHelper`` now derives
   from it.
+- The GTP-U packets between the gNBs and the SGW now carry the PDU Session
+  Container extension header with the QFI, in both directions, as on the N3
+  interface of 5G core networks (4 more bytes per packet). ``NrGtpuHeader`` now
+  supports any chain of GTP-U extension headers.
 
 Bugs fixed
 ----------

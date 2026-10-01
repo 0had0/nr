@@ -53,10 +53,11 @@ not serialized on the wire.
 User plane (S1-U)
 =================
 S1-U encapsulates the user's end-to-end IP packets in GTP-U (GTPv1-U, [TS29281]_) over UDP/IP (UDP
-port 2152), exactly as in a real EPC. The GTP-U header is ``NrGtpuHeader`` -- a 12-byte header that is
-byte-for-byte
-identical to the LTE one, with **no** NR PDU-session container or QFI extension header. The QoS of an
-EPS bearer is **not** enforced on the S1-U link; link over-provisioning is assumed.
+port 2152), exactly as in a real EPC. The GTP-U header is ``NrGtpuHeader``, which carries the PDU
+Session Container extension header (TS 38.415) with the QFI of the packet in both directions, as on the
+N3 interface of a 5G core network: 16 bytes in all. The SGW adds it on the downlink, and the gNB on the
+uplink; the gNB maps the downlink packets to their QoS flow with it. The QoS of an EPS bearer is
+**not** enforced on the S1-U link; link over-provisioning is assumed.
 
 The main NR-specific change is on the data path between the gNB application and the radio NetDevice.
 Where LTE tagged packets with an ``EpsBearerTag`` (carrying a bearer id), NR uses ``NrQosFlowTag``

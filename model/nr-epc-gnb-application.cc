@@ -300,7 +300,7 @@ NrEpcGnbApplication::RecvFromNrSocket(Ptr<Socket> socket)
                                                          << ", mapped to TEID: " << teid
                                                          << " and sent to S1U socket");
         m_rxNrSocketPktTrace(packet->Copy());
-        SendToS1uSocket(packet, teid);
+        SendToS1uSocket(packet, teid, qfi);
     }
 }
 
@@ -336,9 +336,11 @@ NrEpcGnbApplication::RecvFromS1uSocket(Ptr<Socket> socket)
     else
     {
         m_rxS1uSocketPktTrace(packet->Copy());
-        NS_LOG_INFO("Send to NR socket with RNTI " << it->second.m_rnti << " QFI "
-                                                   << +it->second.m_qfi);
-        SendToNrSocket(packet, it->second.m_rnti, it->second.m_qfi);
+        // the QoS flow is given by the PDU Session Container, since a tunnel may carry several
+        // QoS flows of a PDU session (TS 38.415)
+        const uint8_t qfi = gtpu.HasPduSessionContainer() ? gtpu.GetQfi() : it->second.m_qfi;
+        NS_LOG_INFO("Send to NR socket with RNTI " << it->second.m_rnti << " QFI " << +qfi);
+        SendToNrSocket(packet, it->second.m_rnti, qfi);
     }
 }
 
@@ -374,11 +376,13 @@ NrEpcGnbApplication::SendToNrSocket(Ptr<Packet> packet, uint16_t rnti, uint8_t q
 }
 
 void
-NrEpcGnbApplication::SendToS1uSocket(Ptr<Packet> packet, uint32_t teid)
+NrEpcGnbApplication::SendToS1uSocket(Ptr<Packet> packet, uint32_t teid, uint8_t qfi)
 {
-    NS_LOG_FUNCTION(this << packet << teid << packet->GetSize());
+    NS_LOG_FUNCTION(this << packet << teid << +qfi << packet->GetSize());
     NrGtpuHeader gtpu;
     gtpu.SetTeid(teid);
+    // the QFI of the packet, on the N3 interface (TS 38.415)
+    gtpu.SetPduSessionContainer(NrGtpuHeader::UL_PDU_SESSION_INFORMATION, qfi);
     // From 3GPP TS 29.281 v10.0.0 Section 5.1
     // Length of the payload + the non obligatory GTP-U header
     gtpu.SetLength(packet->GetSize() + gtpu.GetSerializedSize() - 8);
