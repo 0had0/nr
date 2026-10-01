@@ -575,6 +575,7 @@ set(test_sources
     test/nr-test-mib-wait-reselection.cc
     test/nr-test-stray-rrc-request.cc
     test/nr-test-mobility-state-ttt.cc
+    test/nr-test-core-connector.cc
     # cmake-format: off
     # todo:
     # test/nr-test-primary-cell-change.cc         /  requires handover

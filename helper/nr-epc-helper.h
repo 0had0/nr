@@ -60,12 +60,17 @@ class NR_EXPORT NrEpcHelper : public Object
     void DoDispose() override;
 
     /**
-     * Add an gNB to the EPC
+     * Add a gNB to the core network.
+     *
+     * This is the point where the RAN is connected to the core: when nrGnbNetDevice is an
+     * NrGnbNetDevice, implementations must connect its RRC to the core-facing entity providing
+     * NrEpcGnbS1SapProvider (and to an X2 entity, if X2 is supported). NrHelper does not
+     * make any assumption on the classes used to realize the core network.
      *
      * @param gnbNode the previously created gNB node which is to be
      * added to the EPC
-     * @param nrGnbNetDevice the NrGnbNetDevice of the gNB node
-     * @param cellIds IDs of cells served by this gNB
+     * @param nrGnbNetDevice the NetDevice of the gNB node
+     * @param cellId ID of the cell served by this gNB
      */
     virtual void AddGnb(Ptr<Node> gnbNode, Ptr<NetDevice> nrGnbNetDevice, uint16_t cellId) = 0;
 

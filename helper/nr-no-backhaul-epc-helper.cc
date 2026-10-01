@@ -362,6 +362,18 @@ NrNoBackhaulEpcHelper::AddGnb(Ptr<Node> gnb, Ptr<NetDevice> nrGnbNetDevice, uint
     NS_LOG_INFO("Create NrEpcX2 entity");
     Ptr<NrEpcX2> x2 = CreateObject<NrEpcX2>();
     gnb->AggregateObject(x2);
+
+    // Other devices (e.g., in S1-U tests) are expected to have their RRC plugged by the caller
+    if (auto gnbDev = DynamicCast<NrGnbNetDevice>(nrGnbNetDevice))
+    {
+        Ptr<NrGnbRrc> rrc = gnbDev->GetRrc();
+        NS_ASSERT_MSG(rrc,
+                      "The RRC must be installed in the gNB device before adding it to the EPC");
+        rrc->SetS1SapProvider(gnbApp->GetS1SapProvider());
+        gnbApp->SetS1SapUser(rrc->GetS1SapUser());
+        x2->SetEpcX2SapUser(rrc->GetEpcX2SapUser());
+        rrc->SetEpcX2SapProvider(x2->GetEpcX2SapProvider());
+    }
 }
 
 void

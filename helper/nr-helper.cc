@@ -26,9 +26,7 @@
 #include "ns3/names.h"
 #include "ns3/nr-ch-access-manager.h"
 #include "ns3/nr-chunk-processor.h"
-#include "ns3/nr-epc-gnb-application.h"
 #include "ns3/nr-epc-ue-nas.h"
-#include "ns3/nr-epc-x2.h"
 #include "ns3/nr-fh-control.h"
 #include "ns3/nr-gnb-mac.h"
 #include "ns3/nr-gnb-net-device.h"
@@ -970,17 +968,6 @@ NrHelper::InstallSingleGnbDevice(
     {
         NS_LOG_INFO("adding this gNB to the EPC");
         m_nrEpcHelper->AddGnb(n, dev, cellId);
-        Ptr<NrEpcGnbApplication> gnbApp = n->GetApplication(0)->GetObject<NrEpcGnbApplication>();
-        NS_ASSERT_MSG(gnbApp != nullptr, "cannot retrieve NrEpcGnbApplication");
-
-        // S1 SAPs
-        rrc->SetS1SapProvider(gnbApp->GetS1SapProvider());
-        gnbApp->SetS1SapUser(rrc->GetS1SapUser());
-
-        // X2 SAPs
-        Ptr<NrEpcX2> x2 = n->GetObject<NrEpcX2>();
-        x2->SetEpcX2SapUser(rrc->GetEpcX2SapUser());
-        rrc->SetEpcX2SapProvider(x2->GetEpcX2SapProvider());
     }
     return dev;
 }

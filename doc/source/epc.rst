@@ -20,6 +20,24 @@ protocol, implementation of the UPF, the N4 interface (PFCP protocol), the inter
 Xn interface (NG-RAN), and other concepts around Service-Based Interface (SBI). Almost
 the entire EPC model will need to be replaced to model a 5G SA Core
 
+Replacing the core network
+==========================
+
+``NrHelper`` does not depend on the classes realizing the core network. It only calls the
+``NrEpcHelper`` interface: ``AddGnb()`` and ``AddUe()`` when devices are installed, and
+``ActivateQosFlow()`` when UEs are attached. The boundary between the RAN and the core is the
+pair of SAPs used by the gNB RRC, ``NrEpcGnbS1SapProvider`` (procedures started by the RAN,
+such as ``InitialUeMessage()``) and ``NrEpcGnbS1SapUser`` (procedures started by the core,
+such as ``InitialContextSetupRequest()``). ``NrEpcHelper::AddGnb()`` is responsible for
+connecting the RRC of the gNB device to the entity implementing ``NrEpcGnbS1SapProvider``.
+
+The built-in core does this with ``NrEpcGnbApplication``, which forwards the procedures to the
+MME and the user plane to the SGW over GTP-U. An alternative core, for instance a connector
+to an external core network, can be provided by an ``NrEpcHelper`` subclass whose
+``AddGnb()`` connects the RRC to its own implementation of ``NrEpcGnbS1SapProvider``. The
+test suite ``nr-core-connector`` shows a minimal example that interposes such an entity in
+front of the built-in core.
+
 QoS configuration
 =================
 
