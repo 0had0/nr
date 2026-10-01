@@ -44,6 +44,11 @@ New user-visible features
   scenarios. It is disabled by default and is enabled through
   ``NrChannelHelper::AddFilters`` with ``NrChannelHelper::COEXISTENCE``. Covered
   by the ``nr-transmit-filter`` test suite.
+- Added ``NrRanEpcHelper``, which installs the gNB side of the S1 and X2
+  interfaces without any core network node, so that other core networks (e.g., a
+  connector to a 5G core network such as Open5GS) are plugged in through
+  ``NrRanEpcHelper::ConnectGnbToCore()``. ``NrNoBackhaulEpcHelper`` now derives
+  from it.
 
 Bugs fixed
 ----------

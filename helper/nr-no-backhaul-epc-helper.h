@@ -8,7 +8,7 @@
 #ifndef NR_NO_BACKHAUL_EPC_HELPER_H
 #define NR_NO_BACKHAUL_EPC_HELPER_H
 
-#include "nr-epc-helper.h"
+#include "nr-ran-epc-helper.h"
 
 #include "ns3/nr-export.h"
 
@@ -32,7 +32,7 @@ class NrEpcMmeApplication;
  * Or you can use NrPointToPointEpcHelper or CsmaNrEpcHelper
  * (instead of this NrNoBackhaulEpcHelper) to use reference backhaul networks.
  */
-class NR_EXPORT NrNoBackhaulEpcHelper : public NrEpcHelper
+class NR_EXPORT NrNoBackhaulEpcHelper : public NrRanEpcHelper
 {
   public:
     /**
@@ -54,13 +54,7 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrEpcHelper
     void DoDispose() override;
 
     // inherited from NrEpcHelper
-    void AddGnb(Ptr<Node> gnbNode, Ptr<NetDevice> nrGnbNetDevice, uint16_t cellId) override;
     void AddUe(Ptr<NetDevice> ueNrDevice, uint64_t imsi) override;
-    void AddX2Interface(Ptr<Node> gnbNode1, Ptr<Node> gnbNode2) override;
-    void AddS1Interface(Ptr<Node> gnb,
-                        Ipv4Address gnbAddress,
-                        Ipv4Address sgwAddress,
-                        uint16_t cellId) override;
     uint8_t ActivateQosFlow(Ptr<NetDevice> ueNrDevice,
                             uint64_t imsi,
                             Ptr<NrQosRule> rule,
@@ -82,22 +76,11 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrEpcHelper
   protected:
     void NotifyConstructionCompleted() override;
 
-    /**
-     * @brief DoAddX2Interface: Call AddX2Interface on top of the Gnb device pointers
-     *
-     * @param gnb1X2 EPCX2 of gNB1
-     * @param gnb1NrDev NR device of gNB1
-     * @param gnb1X2Address Address for gNB1
-     * @param gnb2X2 EPCX2 of gNB2
-     * @param gnb2NrDev NR device of gNB2
-     * @param gnb2X2Address Address for gNB2
-     */
-    virtual void DoAddX2Interface(const Ptr<NrEpcX2>& gnb1X2,
-                                  const Ptr<NetDevice>& gnb1NrDev,
-                                  const Ipv4Address& gnb1X2Address,
-                                  const Ptr<NrEpcX2>& gnb2X2,
-                                  const Ptr<NetDevice>& gnb2NrDev,
-                                  const Ipv4Address& gnb2X2Address) const;
+    // inherited from NrRanEpcHelper
+    void ConnectGnbToCore(Ptr<NrEpcGnbApplication> gnbApp,
+                          uint16_t cellId,
+                          Ipv4Address gnbAddress,
+                          Ipv4Address sgwAddress) override;
 
     /**
      * @brief DoActivateQosFlowForUe: Schedule ActivateQosFlow on the UE
@@ -212,37 +195,6 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrEpcHelper
      * Map storing for each IMSI the corresponding gNB NetDevice
      */
     std::map<uint64_t, Ptr<NetDevice>> m_imsiGnbDeviceMap;
-
-    /**
-     * helper to assign addresses to X2 NetDevices
-     */
-    Ipv4AddressHelper m_x2Ipv4AddressHelper;
-
-    /**
-     * The data rate to be used for the next X2 link to be created
-     */
-    DataRate m_x2LinkDataRate;
-
-    /**
-     * The delay to be used for the next X2 link to be created
-     */
-    Time m_x2LinkDelay;
-
-    /**
-     * The MTU of the next X2 link to be created. Note that,
-     * because of some big X2 messages, you need a big MTU.
-     */
-    uint16_t m_x2LinkMtu;
-
-    /**
-     * Enable PCAP generation for X2 link
-     */
-    bool m_x2LinkEnablePcap;
-
-    /**
-     * Prefix for the PCAP file for the X2 link
-     */
-    std::string m_x2LinkPcapPrefix;
 };
 
 } // namespace ns3

@@ -68,6 +68,7 @@ set(source_files
     helper/nr-mac-rx-trace.cc
     helper/nr-mac-scheduling-stats.cc
     helper/nr-no-backhaul-epc-helper.cc
+    helper/nr-ran-epc-helper.cc
     helper/nr-phy-rx-trace.cc
     helper/nr-point-to-point-epc-helper-base.cc
     helper/nr-point-to-point-epc-helper.cc
@@ -262,6 +263,7 @@ set(header_files
     helper/nr-mac-rx-trace.h
     helper/nr-mac-scheduling-stats.h
     helper/nr-no-backhaul-epc-helper.h
+    helper/nr-ran-epc-helper.h
     helper/nr-phy-rx-trace.h
     helper/nr-point-to-point-epc-helper-base.h
     helper/nr-point-to-point-epc-helper.h
