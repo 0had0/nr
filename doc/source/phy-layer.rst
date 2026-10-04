@@ -328,7 +328,9 @@ we implement a worst case approach to determine the code BLER value by
 using lower bounds of the actual CBS and effective SINR.
 In the PHY abstraction for HARQ-IR, for simplicity and according to the obtained curves,
 we limit the effective ECR by the lowest ECR of the MCSs that have the same modulation
-order as the selected MCS index.
+order as the selected MCS index. The coded bits beyond that ECR are credited as a
+repetition gain of the effective SINR (attribute ``CreditRateBelowModulationFloor`` of
+``NrEesmIr``, enabled by default), as detailed in the HARQ section.
 
 **Transport BLER computation**: In case there is code block segmentation, there is
 a need to convert the code BLER found from the link-level simulator's lookup table
@@ -967,13 +969,32 @@ The ECR after q retransmissions is obtained in the 'NR' simulator as:
 
 where X is the number of information bits and :math:`C_j` is the number of
 coded bits in the j-th retransmission.
-The effective SINR using EESM after q retransmissions is given by:
+The effective SINR using EESM after q retransmissions is computed over the coded bits of
+all of them:
 
-:math:`\text{SINR}_{\text{eff}} = {-}\beta \ln \Big( \frac{1}{|\omega|}\sum_{m \in \omega}\exp\big({-}\frac{ \text{SINR}_{\text{eff}}^{q{-}1}{+}\text{SINR}_{m,q}}{\beta}\big)\Big)`,
+:math:`\text{SINR}_{\text{eff}} = {-}\beta \ln \Big( \frac{1}{\sum_{j=1}^q |\omega_j|}\sum_{j=1}^q \sum_{m \in \omega_j}\exp\big({-}\frac{\text{SINR}_{m,j}}{\beta}\big)\Big)`,
 
-where :math:`\text{SINR}_{\text{eff}}^{q{-}1}` is the effective SINR after the previous,
-i.e., (q-1)-th retransmission, :math:`\text{SINR}_{m,q}` is the SINR experienced by the m-th
-RB in the q-th retransmission, and :math:`\omega` is the set of RBs.
+where :math:`\text{SINR}_{m,j}` is the SINR experienced by the m-th RB in the j-th
+retransmission and :math:`\omega_j` is the set of RBs of the j-th retransmission. The
+effective SINR does not grow when the retransmissions have the same SINR: the combining gain
+comes from the ECR, and the BLER is read from the SINR-BLER curve of the MCS whose ECR is the
+closest above :math:`\text{ECR}_{\text{eff}}` among the MCSs of the modulation order of the
+transmission. Below the lowest ECR of that modulation order,
+:math:`\text{ECR}_{\text{min}}`, the curve no longer changes, so further retransmissions
+would gain nothing, and HARQ-IR would be worse than HARQ-CC, while incremental redundancy is
+never worse than Chase combining. The coded bits beyond :math:`\text{ECR}_{\text{min}}` are
+therefore credited as a repetition (Chase) gain, a lower bound of their incremental redundancy
+gain:
+
+:math:`\text{SINR}_{\text{eff}} \leftarrow \text{SINR}_{\text{eff}} \, \frac{\text{ECR}_{\text{min}}}{\text{ECR}_{\text{eff}}}`
+when :math:`\text{ECR}_{\text{eff}} < \text{ECR}_{\text{min}}`.
+
+This credit (attribute ``CreditRateBelowModulationFloor`` of ``NrEesmIr``) is enabled by
+default. With it, HARQ-IR is at least as good as HARQ-CC for the 16-QAM and 64-QAM MCSs, and
+equal to it when the first transmission uses the lowest MCS of its modulation order. For the
+QPSK MCSs it can still fall short of HARQ-CC near the waterfall: their SINR-BLER curves are
+closer to each other than their code rates, so moving down to a lower MCS gains less than the
+ratio of the code rates.
 
 
 At the MAC layer, the HARQ entity residing in the scheduler is in charge of

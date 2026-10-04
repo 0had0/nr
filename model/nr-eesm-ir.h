@@ -81,6 +81,9 @@ class NR_EXPORT NrEesmIr : public NrEesmErrorModel
 
   private:
     double m_Reff{0.0}; //!< equivalent effective code rate after retransmissions
+    /// Whether the effective code rate below the lowest code rate of the modulation order is
+    /// credited as a repetition gain of the effective SINR
+    bool m_creditRateBelowModulationFloor{true};
 };
 
 } // namespace ns3

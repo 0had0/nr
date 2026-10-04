@@ -175,6 +175,15 @@ Bugs fixed
   a signal without precoding is now split evenly across its transmit ports.
 - Fixed the CSI-IM based CSI using the interference covariance measured with
   the CSI-RS instead of the averaged one when ``NrUePhy::AlphaCovMat`` is not 1.
+- Fixed HARQ-IR (``NrEesmIrT1`` and ``NrEesmIrT2``) gaining nothing from the
+  retransmissions that bring the effective code rate below the lowest code rate
+  of the modulation order of the transport block: the 3rd and 4th transmissions
+  of a 64-QAM block, and every retransmission of a block at the lowest MCS of
+  its modulation order, decoded with the same probability as the 2nd or the
+  1st, so HARQ-IR was worse than HARQ-CC and a block that failed twice was
+  practically lost. The rate below the floor is now credited as a repetition
+  gain of the effective SINR (``NrEesmIr::CreditRateBelowModulationFloor``,
+  enabled by default).
 - Fixed ``NrRlcUm`` losing SDUs with ``OutOfOrderDelivery`` enabled. The PDUs
   were reassembled in their arrival order by the in-order reassembly, which
   takes an SN gap as a loss: every PDU overtaken by another, as by a HARQ

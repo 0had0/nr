@@ -57,6 +57,7 @@ class NrTestNumerologyDelayCase1 : public TestCase
     uint32_t m_numSym{0};
     bool m_firstMacPdu{true};
     bool m_firstRlcPdu{true};
+    bool m_firstPdcpPdu{true};
     bool m_firstDlTransmission{true};
     bool m_firstDlReception{true};
     bool m_firstRxPlcPDU{true};
@@ -326,10 +327,16 @@ NrTestNumerologyDelayCase1::TxPdcpPDU(uint16_t rnti, uint8_t lcid, uint32_t byte
       std::cout<<"\n lcid :"<<(unsigned) lcid<<std::endl;
       std::cout<<"\n bytes :"<<bytes<<std::endl;*/
 
-    NS_TEST_ASSERT_MSG_EQ(
-        Simulator::Now(),
-        m_sendPacketTime,
-        "There should not be delay between packet being sent and being scheduled by the gNb PDCP.");
+    // Only the test packet: its empty IPv4 header makes the UE reply with an
+    // ICMP error, which returns later as a second PDU
+    if (m_firstPdcpPdu)
+    {
+        NS_TEST_ASSERT_MSG_EQ(Simulator::Now(),
+                              m_sendPacketTime,
+                              "There should not be delay between packet being sent and being "
+                              "scheduled by the gNb PDCP.");
+        m_firstPdcpPdu = false;
+    }
 }
 
 void
