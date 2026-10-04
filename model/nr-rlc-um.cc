@@ -570,9 +570,7 @@ NrRlcUm::DoReceivePdu(NrMacSapUser::ReceivePduParameters rxPduParams)
 
     if (m_outOfOrderDelivery)
     {
-        // Deliver immediately, leaving tombstones so late duplicates of the
-        // delivered PDUs are recognised and not delivered twice.
-        ReassembleOutsideWindow(true);
+        DeliverOutOfOrder(seqNumber);
     }
 
     // - if x falls outside of the reordering window:
@@ -668,6 +666,11 @@ NrRlcUm::DoReceivePdu(NrMacSapUser::ReceivePduParameters rxPduParams)
             m_vrUx = m_vrUh;
             NS_LOG_LOGIC("New VR(UX) = " << m_vrUx);
         }
+    }
+
+    if (m_outOfOrderDelivery)
+    {
+        DiscardIncompleteSegments();
     }
 }
 
@@ -773,6 +776,7 @@ NrRlcUm::ReestablishRxSide()
     // state variables to their initial values.
     m_reorderingTimer.Cancel();
     m_rxBuffer.clear();
+    m_outOfOrderSegments.clear();
     m_keepS0 = nullptr;
     m_reassemblingState = WAITING_S0_FULL;
     // Assign fresh SequenceNumber10 objects rather than raw values:
@@ -785,14 +789,12 @@ NrRlcUm::ReestablishRxSide()
 }
 
 void
-NrRlcUm::ReassembleOutsideWindow(bool tombstoneDelivered)
+NrRlcUm::ReassembleOutsideWindow()
 {
     NS_LOG_LOGIC("Reassemble Outside Window");
 
     auto it = m_rxBuffer.lower_bound(m_vrUr.GetValue()); // First SN such that SN >= VR(UR)
 
-    // In tombstone mode the delivered entries stay in the buffer (as null), so the
-    // iteration must be bounded by the number of entries rather than by emptiness.
     for (size_t remaining = m_rxBuffer.size(); remaining > 0; remaining--)
     {
         if (it == m_rxBuffer.end())
@@ -816,25 +818,209 @@ NrRlcUm::ReassembleOutsideWindow(bool tombstoneDelivered)
             ReassembleAndDeliver(it->second);
         }
 
-        if (tombstoneDelivered)
-        {
-            // Remember the SN as received so that a duplicate of this PDU arriving
-            // later (once the SN has slid inside the reordering window, where only
-            // buffered SNs are recognised as duplicates) is not delivered twice.
-            it->second = nullptr;
-            ++it;
-        }
-        else
-        {
-            auto it_tmp = it;
-            ++it;
-            m_rxBuffer.erase(it_tmp);
-        }
+        auto it_tmp = it;
+        ++it;
+        m_rxBuffer.erase(it_tmp);
     }
 
     if (it != m_rxBuffer.end())
     {
         NS_LOG_LOGIC("(SN = " << it->first << ") is inside the reordering window");
+    }
+}
+
+void
+NrRlcUm::DeliverOutOfOrder(nr::SequenceNumber10 seqNumber)
+{
+    NS_LOG_FUNCTION(this << seqNumber);
+
+    const uint16_t sn = seqNumber.GetValue();
+    Ptr<Packet> packet = m_rxBuffer.at(sn);
+    m_rxBuffer[sn] = nullptr;
+
+    NrRlcHeader rlcHeader;
+    packet->RemoveHeader(rlcHeader);
+    const uint8_t framingInfo = rlcHeader.GetFramingInfo();
+    std::list<Ptr<Packet>> dataFields;
+    SplitDataFields(rlcHeader, packet, dataFields);
+
+    // Unlike the in-order reassembly, whose state machine needs the PDUs in SN order, the
+    // segments at the edges of the PDU are held by SN, so that an SDU is reassembled whatever
+    // the order its PDUs arrive in (HARQ retransmissions overtake each other all the time).
+    OutOfOrderSegments segments;
+    if ((framingInfo & NrRlcHeader::NO_FIRST_BYTE) != 0)
+    {
+        segments.m_head = dataFields.front();
+        dataFields.pop_front();
+    }
+    if ((framingInfo & NrRlcHeader::NO_LAST_BYTE) != 0)
+    {
+        if (dataFields.empty())
+        {
+            segments.m_tail = segments.m_head;
+        }
+        else
+        {
+            segments.m_tail = dataFields.back();
+            dataFields.pop_back();
+        }
+    }
+
+    for (const auto& sdu : dataFields)
+    {
+        m_rlcSapUser->ReceivePdcpPdu(sdu);
+    }
+
+    if (!segments.m_head && !segments.m_tail)
+    {
+        return;
+    }
+    m_outOfOrderSegments[sn] = segments;
+    if (segments.m_head)
+    {
+        DeliverSegmentedSdu(sn);
+    }
+    auto it = m_outOfOrderSegments.find(sn);
+    if (it != m_outOfOrderSegments.end() && it->second.m_tail)
+    {
+        DeliverSegmentedSdu((seqNumber + 1).GetValue());
+    }
+}
+
+void
+NrRlcUm::DeliverSegmentedSdu(uint16_t boundary)
+{
+    NS_LOG_FUNCTION(this << boundary);
+
+    // The SNs carrying the segments of the SDU, from the PDU whose last data field starts it to
+    // the PDU whose first data field ends it; the PDUs in between carry a middle segment only.
+    std::deque<uint16_t> chain;
+    nr::SequenceNumber10 sn = nr::SequenceNumber10(boundary) - 1;
+    for (uint16_t n = 0;; n++)
+    {
+        auto it = m_outOfOrderSegments.find(sn.GetValue());
+        if (it == m_outOfOrderSegments.end() || !it->second.m_tail || n >= m_windowSize)
+        {
+            return;
+        }
+        chain.push_front(sn.GetValue());
+        if (it->second.m_head != it->second.m_tail)
+        {
+            break;
+        }
+        sn = sn - 1;
+    }
+    sn = nr::SequenceNumber10(boundary);
+    for (uint16_t n = 0;; n++)
+    {
+        auto it = m_outOfOrderSegments.find(sn.GetValue());
+        if (it == m_outOfOrderSegments.end() || !it->second.m_head || n >= m_windowSize)
+        {
+            return;
+        }
+        chain.push_back(sn.GetValue());
+        if (it->second.m_head != it->second.m_tail)
+        {
+            break;
+        }
+        sn++;
+    }
+
+    Ptr<Packet> sdu = m_outOfOrderSegments.at(chain.front()).m_tail->Copy();
+    m_outOfOrderSegments.at(chain.front()).m_tail = nullptr;
+    for (size_t i = 1; i < chain.size(); i++)
+    {
+        OutOfOrderSegments& segments = m_outOfOrderSegments.at(chain.at(i));
+        sdu->AddAtEnd(segments.m_head);
+        if (segments.m_tail == segments.m_head)
+        {
+            segments.m_tail = nullptr;
+        }
+        segments.m_head = nullptr;
+    }
+    for (uint16_t chainSn : chain)
+    {
+        const OutOfOrderSegments& segments = m_outOfOrderSegments.at(chainSn);
+        if (!segments.m_head && !segments.m_tail)
+        {
+            m_outOfOrderSegments.erase(chainSn);
+        }
+    }
+
+    NS_LOG_LOGIC("Delivering an SDU reassembled from SNs " << chain.front() << " to "
+                                                           << chain.back());
+    m_rlcSapUser->ReceivePdcpPdu(sdu);
+}
+
+void
+NrRlcUm::DiscardIncompleteSegments()
+{
+    NS_LOG_FUNCTION(this);
+
+    // Whether a PDU that was not received can no longer arrive: it is behind VR(UR) inside the
+    // reordering window. Outside of the window, an SN is ahead of VR(UH) and may still arrive.
+    auto givenUp = [this](uint16_t value) {
+        nr::SequenceNumber10 neighbour(value);
+        if (!IsInsideReorderingWindow(neighbour))
+        {
+            return false;
+        }
+        neighbour.SetModulusBase(m_vrUh - m_windowSize);
+        m_vrUr.SetModulusBase(m_vrUh - m_windowSize);
+        return neighbour < m_vrUr;
+    };
+    // Whether the neighbouring SN can still provide the matching segment: it is held, or it was
+    // neither received (its segments would be held) nor given up.
+    auto canProvide = [this, &givenUp](uint16_t value, bool head) {
+        auto it = m_outOfOrderSegments.find(value);
+        if (it != m_outOfOrderSegments.end())
+        {
+            return (head ? it->second.m_head : it->second.m_tail) != nullptr;
+        }
+        return m_rxBuffer.count(value) == 0 && !givenUp(value);
+    };
+
+    // Discarding a middle segment breaks the SDU on both sides, so repeat until stable.
+    bool changed = true;
+    while (changed)
+    {
+        changed = false;
+        for (auto it = m_outOfOrderSegments.begin(); it != m_outOfOrderSegments.end();)
+        {
+            const nr::SequenceNumber10 sn(it->first);
+            OutOfOrderSegments& segments = it->second;
+            const bool middle = segments.m_head && segments.m_head == segments.m_tail;
+            // Every received PDU is behind VR(UH): a held SN outside the window is stale.
+            const bool stale = !IsInsideReorderingWindow(sn);
+            bool dropHead = segments.m_head && (stale || !canProvide((sn - 1).GetValue(), false));
+            bool dropTail = segments.m_tail && (stale || !canProvide((sn + 1).GetValue(), true));
+            if (middle && (dropHead || dropTail))
+            {
+                dropHead = true;
+                dropTail = true;
+            }
+            if (dropHead || dropTail)
+            {
+                NS_LOG_LOGIC("Discarding the incomplete SDU segments held for SN = " << sn);
+                changed = true;
+                if (dropHead)
+                {
+                    segments.m_head = nullptr;
+                }
+                if (dropTail)
+                {
+                    segments.m_tail = nullptr;
+                }
+            }
+            if (!segments.m_head && !segments.m_tail)
+            {
+                it = m_outOfOrderSegments.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
     }
 }
 
@@ -953,6 +1139,11 @@ NrRlcUm::ExpireReorderingTimer()
             Simulator::Schedule(m_reorderingTimerValue, &NrRlcUm::ExpireReorderingTimer, this);
         m_vrUx = m_vrUh;
         NS_LOG_LOGIC("New VR(UX) = " << m_vrUx);
+    }
+
+    if (m_outOfOrderDelivery)
+    {
+        DiscardIncompleteSegments();
     }
 }
 

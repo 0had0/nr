@@ -21,7 +21,8 @@
  * packet-delay-budget expiry, produces no PDU for tiny or empty-buffer Tx opportunities, and
  * never concatenates after a > 2047-byte SDU; that t-Reordering starts, stops, delivers past
  * unfilled holes and restarts correctly; and that OutOfOrderDelivery delivers immediately
- * without waiting for missing SNs.
+ * without waiting for missing SNs, byte-exact whatever the order the PDUs of a segmented SDU
+ * arrive in.
  */
 
 #include "nr-rlc-test-utils.h"
@@ -1636,6 +1637,183 @@ NrRlcUmDataIntegrityTestCase::DoRun()
     Simulator::Destroy();
 }
 
+/**
+ * @ingroup tests
+ *
+ * @brief End-to-end data-integrity test of the out-of-order delivery of NrRlcUm.
+ *
+ * Out-of-order delivery used to feed the PDUs, in their arrival order, to the in-order
+ * reassembly state machine, which takes an SN gap as a loss: every PDU overtaken by
+ * another (a HARQ retransmission, routinely) discarded the SDUs segmented across its
+ * boundaries, and in system simulations most flows lost data. A transmitting NrRlcUm
+ * segments and concatenates SDUs, one of them spanning at least three PDUs, and the
+ * captured PDUs are delivered to fresh out-of-order receiving entities in reverse order,
+ * with two PDUs swapped, with one PDU lost and with a duplicated PDU. Every SDU must be
+ * delivered exactly once and byte-exact as soon as all its segments are received, in any
+ * order; an SDU with a segment in the lost PDU must never be delivered, and its other
+ * segments must be discarded once the reordering window gives the lost PDU up.
+ */
+class NrRlcUmOutOfOrderDataIntegrityTestCase : public NrRlcTestCaseBase
+{
+  public:
+    NrRlcUmOutOfOrderDataIntegrityTestCase()
+        : NrRlcTestCaseBase("Test RLC UM: out-of-order delivery is byte-exact under "
+                            "reordering, loss and duplication")
+    {
+    }
+
+  private:
+    void DoRun() override;
+
+    /**
+     * Verify the delivered SDUs are exactly the expected ones, byte-exact and each
+     * delivered once, in any order.
+     *
+     * @param sink the sink holding the delivered SDUs
+     * @param expected the expected SDUs
+     * @param label scenario label for the assertion messages
+     */
+    void VerifyDeliveredOnce(const NrRlcTestSduSink& sink,
+                             const std::vector<NrRlcSduSpec>& expected,
+                             const std::string& label);
+};
+
+void
+NrRlcUmOutOfOrderDataIntegrityTestCase::VerifyDeliveredOnce(
+    const NrRlcTestSduSink& sink,
+    const std::vector<NrRlcSduSpec>& expected,
+    const std::string& label)
+{
+    NS_TEST_ASSERT_MSG_EQ(sink.m_sdus.size(),
+                          expected.size(),
+                          label << ": number of delivered SDUs");
+    for (const auto& [fill, size] : expected)
+    {
+        const auto delivered =
+            std::count_if(sink.m_sdus.begin(), sink.m_sdus.end(), [fill, size](const auto& sdu) {
+                return IsUniformSdu(sdu, fill, size);
+            });
+        NS_TEST_ASSERT_MSG_EQ(delivered,
+                              1,
+                              label << ": SDU '" << (char)fill << "' (" << size
+                                    << " bytes) must be delivered once, byte-exact");
+    }
+}
+
+void
+NrRlcUmOutOfOrderDataIntegrityTestCase::DoRun()
+{
+    // 'C' spans at least three 40-byte PDUs, so that a PDU carries a middle segment only.
+    const std::vector<NrRlcSduSpec> txSdus =
+        {{'A', 45}, {'B', 52}, {'C', 150}, {'D', 66}, {'E', 73}, {'F', 80}};
+
+    Ptr<NrRlcUm> txRlc = CreateObject<NrRlcUm>();
+    NrRlcTestCaptureMac capture;
+    txRlc->SetNrMacSapProvider(&capture);
+    QueueSdus(txRlc, txSdus);
+    GrantTxOpportunities(txRlc, 40, 20);
+    const std::vector<Ptr<Packet>>& pdus = capture.m_pdus;
+    CheckSegmentationAndConcatenation<NrRlcHeader>(pdus);
+
+    auto newReceiver = [](NrRlcTestSduSink& sink) {
+        Ptr<NrRlcUm> rxRlc = CreateObject<NrRlcUm>();
+        rxRlc->SetAttribute("OutOfOrderDelivery", BooleanValue(true));
+        rxRlc->SetNrRlcSapUser(sink.GetSapUser());
+        return rxRlc;
+    };
+
+    // Scenario 1: every PDU arrives in reverse SN order. Each SDU is delivered as soon as
+    // its last segment arrives, without waiting for t-Reordering.
+    {
+        NrRlcTestSduSink sink;
+        Ptr<NrRlcUm> rxRlc = newReceiver(sink);
+        for (auto it = pdus.rbegin(); it != pdus.rend(); ++it)
+        {
+            DeliverPduToRlc(rxRlc, (*it)->Copy());
+        }
+        VerifyDeliveredOnce(sink, txSdus, "reverse order, before t-Reordering");
+        Simulator::Run();
+        VerifyDeliveredOnce(sink, txSdus, "reverse order");
+        NS_TEST_ASSERT_MSG_EQ(rxRlc->m_outOfOrderSegments.size(),
+                              0,
+                              "reverse order: no segment may be left held");
+    }
+
+    // Scenario 2: two adjacent PDUs swapped, as a HARQ retransmission overtaken by the
+    // next transport block.
+    {
+        NrRlcTestSduSink sink;
+        Ptr<NrRlcUm> rxRlc = newReceiver(sink);
+        std::vector<Ptr<Packet>> reordered = pdus;
+        std::swap(reordered.at(2), reordered.at(3));
+        for (const auto& pdu : reordered)
+        {
+            DeliverPduToRlc(rxRlc, pdu->Copy());
+        }
+        VerifyDeliveredOnce(sink, txSdus, "swapped, before t-Reordering");
+        Simulator::Run();
+        VerifyDeliveredOnce(sink, txSdus, "swapped");
+    }
+
+    // Scenario 3: the PDU carrying only a middle segment of 'C' is lost. 'C' must never be
+    // delivered, every other SDU must be, and the held segments of 'C' must be discarded
+    // once t-Reordering gives the lost PDU up.
+    {
+        uint32_t lostIndex = pdus.size();
+        for (uint32_t i = 0; i < pdus.size(); i++)
+        {
+            std::set<uint8_t> fills = FillsInPdu<NrRlcHeader>(pdus.at(i));
+            if (fills.size() == 1 && fills.count('C') == 1 && i > 0 &&
+                FillsInPdu<NrRlcHeader>(pdus.at(i - 1)).count('C') == 1 && i + 1 < pdus.size() &&
+                FillsInPdu<NrRlcHeader>(pdus.at(i + 1)).count('C') == 1)
+            {
+                lostIndex = i;
+                break;
+            }
+        }
+        NS_TEST_ASSERT_MSG_LT(lostIndex, pdus.size(), "a PDU must carry a middle segment of 'C'");
+        std::vector<NrRlcSduSpec> expected;
+        for (const auto& sdu : txSdus)
+        {
+            if (sdu.first != 'C')
+            {
+                expected.push_back(sdu);
+            }
+        }
+
+        NrRlcTestSduSink sink;
+        Ptr<NrRlcUm> rxRlc = newReceiver(sink);
+        for (auto it = pdus.rbegin(); it != pdus.rend(); ++it)
+        {
+            if (static_cast<uint32_t>(pdus.rend() - it - 1) != lostIndex)
+            {
+                DeliverPduToRlc(rxRlc, (*it)->Copy());
+            }
+        }
+        Simulator::Run();
+        VerifyDeliveredOnce(sink, expected, "middle segment lost");
+        NS_TEST_ASSERT_MSG_EQ(rxRlc->m_outOfOrderSegments.size(),
+                              0,
+                              "the segments of an SDU that cannot complete must be discarded");
+    }
+
+    // Scenario 4: a PDU is duplicated after its SDUs were delivered; nothing may be
+    // delivered twice.
+    {
+        NrRlcTestSduSink sink;
+        Ptr<NrRlcUm> rxRlc = newReceiver(sink);
+        for (const auto& pdu : pdus)
+        {
+            DeliverPduToRlc(rxRlc, pdu->Copy());
+        }
+        DeliverPduToRlc(rxRlc, pdus.at(3)->Copy());
+        Simulator::Run();
+        VerifyDeliveredOnce(sink, txSdus, "duplicated PDU");
+    }
+
+    Simulator::Destroy();
+}
+
 class NrRlcUmTestSuite : public TestSuite
 {
   public:
@@ -1656,6 +1834,7 @@ class NrRlcUmTestSuite : public TestSuite
         AddTestCase(new NrRlcUmOutOfOrderDeliveryTestCase(), Duration::QUICK);
         AddTestCase(new NrRlcUmLatePduTestCase(), Duration::QUICK);
         AddTestCase(new NrRlcUmDataIntegrityTestCase(), Duration::QUICK);
+        AddTestCase(new NrRlcUmOutOfOrderDataIntegrityTestCase(), Duration::QUICK);
     }
 };
 

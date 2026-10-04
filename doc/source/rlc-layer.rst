@@ -156,8 +156,12 @@ WAITING_SI_SF (waiting for a non-start of a SDU).
 After checking the FI, the RLC PDU is delivered to PDCP for processing.
 
 The 'NR' UM entity adds an optional **out-of-order delivery** mode (the ``OutOfOrderDelivery``
-attribute): when enabled, received PDUs are also reassembled outside the reception window, so SDUs
-can be delivered without waiting for in-order reassembly. The port also hardens t-Reordering
+attribute), the ``rlc-OutOfOrderDelivery`` of TS 38.322: the complete SDUs of a received PDU are
+delivered at once, whatever its SN, and the segments of an SDU split across PDUs are held by SN
+until all of them are received, in any order, when the SDU is reassembled and delivered. The
+reordering window then only tracks which SNs were received: segments that can no longer be
+completed, because a PDU carrying another segment of their SDU fell behind VR(UR) without being
+received, are discarded. The port also hardens t-Reordering
 handling so that a partially reassembled SDU that is stranded mid-reassembly when the timer expires
 (or after a 10-bit SN wrap) is discarded rather than corrupted.
 
@@ -227,8 +231,9 @@ changes:
   entity invokes it once when a PDU reaches ``maxRetxThreshold``, which ``NrUeRrc`` can turn into a
   radio link failure (see RLC AM above). This implements a function the LTE model listed as
   unsupported.
-* **UM out-of-order delivery (new).** The ``OutOfOrderDelivery`` attribute and the associated
-  reassemble-outside-window path, plus t-Reordering stale-SDU discard hardening (see RLC UM above).
+* **UM out-of-order delivery (new).** The ``OutOfOrderDelivery`` attribute, which reassembles the
+  SDUs from the segments held by SN in any arrival order, plus t-Reordering stale-SDU discard
+  hardening (see RLC UM above).
 * **MAC-SAP primitive renames.** LTE's ``ReportBufferStatus`` / ``ReportBufferStatusParameters`` are
   named ``BufferStatusReport`` / ``BufferStatusReportParameters`` in NR, the AM attribute
   ``ReportBufferStatusTimer`` is ``BufferStatusReportTimer``, and a periodic-BSR flag

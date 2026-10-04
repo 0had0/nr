@@ -75,14 +75,35 @@ class NR_EXPORT NrRlcUm : public NrRlc
 
     void ReestablishRxSide() override;
 
+    /// Reassemble outside window
+    void ReassembleOutsideWindow();
+
     /**
-     * Reassemble outside window
+     * Out-of-order delivery (rlc-OutOfOrderDelivery): deliver the complete SDUs of a PDU just
+     * placed in the reception buffer, and the segmented SDUs it completes together with the
+     * segments held from other PDUs, then leave a null entry (tombstone) in the reception buffer.
      *
-     * @param tombstoneDelivered if true, keep a null entry for each delivered SN in
-     *                           the reception buffer so late duplicates are
-     *                           recognised (used by out-of-order delivery)
+     * The tombstone keeps the PDU counted as received for the state variables and the duplicate
+     * detection of the reordering window, which then only advances over it.
+     *
+     * @param seqNumber the SN of the PDU just placed in the reception buffer
      */
-    void ReassembleOutsideWindow(bool tombstoneDelivered = false);
+    void DeliverOutOfOrder(nr::SequenceNumber10 seqNumber);
+
+    /**
+     * Out-of-order delivery: deliver the SDU segmented across the boundary between the PDUs
+     * with SN = boundary - 1 and SN = boundary, if all its segments are held.
+     *
+     * @param boundary the SN of the PDU whose first data field continues the SDU
+     */
+    void DeliverSegmentedSdu(uint16_t boundary);
+
+    /**
+     * Out-of-order delivery: discard the held segments that can no longer be completed, i.e.
+     * whose neighbouring PDU was received without the matching segment, or was given up by the
+     * reordering window (behind VR(UR) without having been received).
+     */
+    void DiscardIncompleteSegments();
     /**
      * Reassemble SN interval function
      *
@@ -123,6 +144,8 @@ class NR_EXPORT NrRlcUm : public NrRlc
     friend class NrRlcUmReorderingTimerTestCase;
     /// Grant the out-of-order delivery test access to private reception buffer state
     friend class NrRlcUmOutOfOrderDeliveryTestCase;
+    /// Grant the out-of-order data-integrity test access to the held segments
+    friend class NrRlcUmOutOfOrderDataIntegrityTestCase;
     /// Grant the severely-delayed-PDU test access to private window state
     friend class NrRlcUmLatePduTestCase;
     uint32_t m_maxTxBufferSize; ///< maximum transmit buffer status
@@ -154,6 +177,16 @@ class NR_EXPORT NrRlcUm : public NrRlc
     std::map<uint16_t, Ptr<Packet>> m_rxBuffer; ///< Reception buffer
 
     std::list<Ptr<Packet>> m_sdusBuffer; ///< List of SDUs in a packet
+
+    /// Segments of SDUs split across PDUs, held by out-of-order delivery until complete
+    struct OutOfOrderSegments
+    {
+        Ptr<Packet> m_head; ///< First data field, continuing the SDU of the previous SN, or null
+        Ptr<Packet> m_tail; ///< Last data field, continued by the next SN, or null (the same
+                            ///< packet as m_head for a PDU carrying only a middle segment)
+    };
+
+    std::map<uint16_t, OutOfOrderSegments> m_outOfOrderSegments; ///< Held segments, by SN
 
     /**
      * State variables. See section 7.1 in TS 36.322

@@ -175,6 +175,13 @@ Bugs fixed
   a signal without precoding is now split evenly across its transmit ports.
 - Fixed the CSI-IM based CSI using the interference covariance measured with
   the CSI-RS instead of the averaged one when ``NrUePhy::AlphaCovMat`` is not 1.
+- Fixed ``NrRlcUm`` losing SDUs with ``OutOfOrderDelivery`` enabled. The PDUs
+  were reassembled in their arrival order by the in-order reassembly, which
+  takes an SN gap as a loss: every PDU overtaken by another, as by a HARQ
+  retransmission, discarded the SDUs segmented across its boundaries, and in
+  the dense urban calibration two thirds of the FTP files lost data. The
+  segments of an SDU split across PDUs are now held by SN and reassembled once
+  all of them are received, in any order.
 
 Release NR-v5.1
 ---------------
