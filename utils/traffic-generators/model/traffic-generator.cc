@@ -281,7 +281,7 @@ TrafficGenerator::SendNextPacket()
     uint32_t toSend = GetNextPacketSize();
     // Make sure we don't send too many
     if ((m_packetBurstSizeInBytes > 0) and
-        (m_packetBurstSizeInBytes - m_currentBurstTotBytes > toSend))
+        (m_packetBurstSizeInBytes - m_currentBurstTotBytes < toSend))
     {
         toSend = std::min(toSend, m_packetBurstSizeInBytes - m_currentBurstTotBytes);
     }

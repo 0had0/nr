@@ -22,6 +22,7 @@
 #include "ns3/string.h"
 #include "ns3/test.h"
 #include "ns3/three-gpp-http-variables.h"
+#include "ns3/traffic-generator-ftp-single.h"
 #include "ns3/traffic-generator-helper.h"
 #include "ns3/traffic-generator-ngmn-ftp-multi.h"
 #include "ns3/traffic-generator-ngmn-gaming.h"
@@ -67,7 +68,23 @@ class TrafficGeneratorTestCase : public TestCase
  * @ingroup applications-test
  * @ingroup tests
  *
- * Test that the file size is generated according to NGMN parameters
+ * Test that a file (packet burst) of TrafficGeneratorFtpSingle sends exactly its size, with a
+ * last packet smaller than the packet size
+ */
+class TrafficGeneratorFtpSingleBurstSizeTestCase : public TestCase
+{
+  public:
+    TrafficGeneratorFtpSingleBurstSizeTestCase();
+
+  private:
+    void DoRun() override;
+};
+
+/**
+ * @ingroup applications-test
+ * @ingroup tests
+ *
+ * Test that the file sizes are generated according to NGMN parameters
  */
 class TrafficGeneratorNgmnFtpTestCase : public TestCase
 {

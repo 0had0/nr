@@ -154,6 +154,10 @@ Bugs fixed
 - Fixed ``ResourceAssignmentMatrix::GetAssignedResourcesToUe()`` reporting every
   resource as ``ResourceType::EMPTY``. It now reports the type each resource was
   assigned with. Covered by the ``nr-resource-assignment-matrix`` test suite.
+- Fixed ``TrafficGenerator`` sending more than the size of a packet burst: its
+  last packet had the full packet size instead of the bytes left, so a 0.5 MB
+  file of ``TrafficGeneratorFtpSingle`` with 1448-byte packets sent 512592
+  bytes.
 - Fixed ``HexagonalGridScenarioHelper`` placing the indoor UEs at continuous
   heights: their floor is now an integer, uniform in 1 to N_fl, with N_fl
   uniform in 4 to 8 (TR 38.901 Table 7.4.1-1).
