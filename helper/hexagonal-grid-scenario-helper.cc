@@ -572,14 +572,31 @@ HexagonalGridScenarioHelper::CreateScenarioWithMobility(const Vector& indoorUeSp
     //     central site. sqrt(U(0, R^2)) gives a uniform radial sample inside the disc;
     //     the angle is uniform in [-pi, pi]. Mobility is bounded by the same circle via
     //     RandomDirectionDisc2dMobilityModel, so placement and movement region agree.
-    //   * Sector mode (default): UEs are sampled around each per-sector hexagon, with a
-    //     minimum BS-UT standoff, then rejection-sampled against m_maxUeDistanceToClosestSite.
-    const double sectorOuterR = m_hexagonalRadius * std::sqrt(3) / 2 - m_minBsUtDistance;
-    const double sampleR = (m_ueDiscRadius > 0.0) ? m_ueDiscRadius : sectorOuterR;
-    m_r->SetAttribute("Min", DoubleValue(0));
-    m_r->SetAttribute("Max", DoubleValue(sampleR * sampleR));
-    m_theta->SetAttribute("Min", DoubleValue(-1.0 * M_PI));
-    m_theta->SetAttribute("Max", DoubleValue(M_PI));
+    //   * Sector mode (default): UEs are sampled uniformly in the hexagon of their cell
+    //     (TR 38.901 Table 7.2-1), by rejection from its bounding box, and kept if their 2D
+    //     distance to the site is between m_minBsUtDistance and m_maxUeDistanceToClosestSite.
+    //     With 3 sectors, the cell is the sector hexagon of circumradius ISD/3, with the site at
+    //     a vertex; with 1 sector, it is the site hexagon of circumradius ISD/sqrt(3).
+    const bool threeSectors = GetNumSectorsPerSite() == 3;
+    const double cellRadius = threeSectors ? m_hexagonalRadius : m_isd / std::sqrt(3);
+    if (m_ueDiscRadius > 0.0)
+    {
+        m_r->SetAttribute("Min", DoubleValue(0));
+        m_r->SetAttribute("Max", DoubleValue(m_ueDiscRadius * m_ueDiscRadius));
+        m_theta->SetAttribute("Min", DoubleValue(-1.0 * M_PI));
+        m_theta->SetAttribute("Max", DoubleValue(M_PI));
+    }
+    else
+    {
+        // Bounding box of a hexagon of unit circumradius, with a vertex on the y axis (3 sectors)
+        // or on the x axis (1 sector)
+        const double halfX = threeSectors ? std::sqrt(3) / 2 : 1;
+        const double halfY = threeSectors ? 1 : std::sqrt(3) / 2;
+        m_r->SetAttribute("Min", DoubleValue(-halfX));
+        m_r->SetAttribute("Max", DoubleValue(halfX));
+        m_theta->SetAttribute("Min", DoubleValue(-halfY));
+        m_theta->SetAttribute("Max", DoubleValue(halfY));
+    }
 
     // UT position
     NodeContainer indoorUes;
@@ -606,28 +623,34 @@ HexagonalGridScenarioHelper::CreateScenarioWithMobility(const Vector& indoorUeSp
         }
         else
         {
-            Vector closestSitePosition = GetClosestSitePosition(cellCenterPos, sitePosVector);
-            double distance2DToClosestSite = 0;
-
-            // We do not want to take into account the positions that are in the part of the
-            // disk that is far away from the closest site.
-            // To determine whether the position is far away we use
-            // parameter max distance to closest site.
+            const Vector sitePosition = GetClosestSitePosition(cellCenterPos, sitePosVector);
             uint16_t sanityCounter = 0;
-            do
+            while (true)
             {
                 NS_ABORT_MSG_IF(sanityCounter++ > 1000,
                                 "Algorithm needs too many trials to find correct UE position. "
                                 "Please check parameters.");
-                double d = std::sqrt(m_r->GetValue());
-                double t = m_theta->GetValue();
+                const double u = m_r->GetValue();
+                const double v = m_theta->GetValue();
+                // inside the hexagon: |a| <= sqrt(3)/2 and |b| <= 1 - |a|/sqrt(3), with b along
+                // the axis of the vertex
+                const double a = std::abs(threeSectors ? u : v);
+                const double b = std::abs(threeSectors ? v : u);
+                if (b > 1 - a / std::sqrt(3))
+                {
+                    continue;
+                }
                 utPos = cellCenterPos;
-                utPos.x += d * cos(t);
-                utPos.y += d * sin(t);
-                double d_x = utPos.x - closestSitePosition.x;
-                double d_y = utPos.y - closestSitePosition.y;
-                distance2DToClosestSite = sqrt(d_x * d_x + d_y * d_y);
-            } while (distance2DToClosestSite > m_maxUeDistanceToClosestSite);
+                utPos.x += u * cellRadius;
+                utPos.y += v * cellRadius;
+                const double distance2DToSite =
+                    std::hypot(utPos.x - sitePosition.x, utPos.y - sitePosition.y);
+                if (distance2DToSite >= m_minBsUtDistance &&
+                    distance2DToSite <= m_maxUeDistanceToClosestSite)
+                {
+                    break;
+                }
+            }
         }
 
         if (numUesWithRandomUtHeight > 0)
@@ -635,8 +658,9 @@ HexagonalGridScenarioHelper::CreateScenarioWithMobility(const Vector& indoorUeSp
             indoorUes.Add(m_ut.Get(utId));
             Ptr<UniformRandomVariable> uniformRandomVariable =
                 CreateObject<UniformRandomVariable>();
-            double Nfl = uniformRandomVariable->GetValue(4, 8);
-            double nfl = uniformRandomVariable->GetValue(1, Nfl);
+            // TR 38.901 Table 7.4.1-1: floor n_fl uniform in 1..N_fl, N_fl uniform in 4..8
+            const uint32_t Nfl = uniformRandomVariable->GetInteger(4, 8);
+            const uint32_t nfl = uniformRandomVariable->GetInteger(1, Nfl);
 
             if (m_bsHeight == 10)
             {

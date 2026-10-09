@@ -6,10 +6,13 @@
 #include "ns3/constant-velocity-mobility-model.h"
 #include "ns3/fast-fading-constant-position-mobility-model.h"
 #include "ns3/hexagonal-grid-scenario-helper.h"
+#include "ns3/mobility-model.h"
 #include "ns3/resource-assignment-matrix.h"
 #include "ns3/simulator.h"
 #include "ns3/test.h"
 #include "ns3/vector.h"
+
+#include <cmath>
 
 /**
  * @file nr-test-hexagonal-grid-scenario-helper.cc
@@ -225,6 +228,85 @@ NrHexagonalGridDeploymentTestCase::DoRun()
     Simulator::Destroy();
 }
 
+/**
+ * @brief TestCase for the UE drop of the hexagonal grid with 3 sectors per site: the UEs are
+ * dropped uniformly in the hexagon of their cell (TR 38.901 Table 7.2-1), so about 12 % of them are
+ * more than 45 degrees off the boresight of their sector, and none is closer than the minimum BS-UT
+ * distance to its site. The indoor UEs are on integer floors: h = 3 (n_fl - 1) + 1.5 m, with n_fl
+ * uniform in 1..N_fl and N_fl uniform in 4..8 (TR 38.901 Table 7.4.1-1).
+ */
+class NrHexagonalGridUeDropTestCase : public TestCase
+{
+  public:
+    /**
+     * @brief Create NrHexagonalGridUeDropTestCase
+     */
+    NrHexagonalGridUeDropTestCase()
+        : TestCase("NrHexagonalGridUeDropTestCase")
+    {
+    }
+
+  private:
+    void DoRun() override;
+};
+
+void
+NrHexagonalGridUeDropTestCase::DoRun()
+{
+    ScenarioParameters scenarioParameters;
+    scenarioParameters.m_isd = 200;
+    scenarioParameters.m_bsHeight = 25;
+    scenarioParameters.m_utHeight = 1.5;
+    scenarioParameters.m_minBsUtDistance = 10;
+    scenarioParameters.m_antennaOffset = 1;
+    scenarioParameters.m_sectorization = HexagonalGridScenarioHelper::TRIPLE;
+
+    const uint32_t numCells = 21; // 1 ring: 7 sites of 3 sectors
+    const uint32_t uesPerCell = 100;
+    HexagonalGridScenarioHelper helper;
+    helper.SetScenarioParameters(scenarioParameters);
+    helper.SetNumRings(1);
+    helper.SetUtNumber(numCells * uesPerCell);
+    helper.AssignStreams(1);
+    helper.CreateScenarioWithMobility(Vector(0, 0, 0), Vector(0, 0, 0), 0.8);
+
+    const auto& gnbs = helper.GetBaseStations();
+    const auto& ues = helper.GetUserTerminals();
+    NS_TEST_ASSERT_MSG_EQ(gnbs.GetN(), numCells, "Unexpected number of cells");
+    uint32_t offBoresight = 0;
+    for (uint32_t i = 0; i < ues.GetN(); ++i)
+    {
+        // UE i is dropped in cell i % numCells, whose antenna is 1 m from the site along the
+        // boresight of the sector (bearings 30, 150 and 270 degrees)
+        const uint32_t cell = i % numCells;
+        const double bearing = (30.0 + 120.0 * (cell % 3)) * M_PI / 180;
+        const Vector gnb = gnbs.Get(cell)->GetObject<MobilityModel>()->GetPosition();
+        const Vector ue = ues.Get(i)->GetObject<MobilityModel>()->GetPosition();
+        const double dx = ue.x - (gnb.x - std::cos(bearing));
+        const double dy = ue.y - (gnb.y - std::sin(bearing));
+        NS_TEST_ASSERT_MSG_GT_OR_EQ(std::hypot(dx, dy),
+                                    scenarioParameters.m_minBsUtDistance,
+                                    "UE " << i
+                                          << " is closer to its site than the minimum distance");
+        const double off = std::remainder(std::atan2(dy, dx) - bearing, 2 * M_PI);
+        offBoresight += std::abs(off) > M_PI / 4;
+        const double floor = (ue.z - 1.5) / 3;
+        NS_TEST_ASSERT_MSG_EQ_TOL(floor,
+                                  std::round(floor),
+                                  1e-9,
+                                  "UE " << i << " at height " << ue.z << " is not on a floor");
+        NS_TEST_ASSERT_MSG_LT_OR_EQ(floor, 7, "UE " << i << " is above the 8th floor");
+    }
+    // A uniform drop in the sector hexagon puts 12 % of the UEs more than 45 degrees off the
+    // boresight; a drop in the disc inscribed in the hexagon puts none there
+    const double fraction = static_cast<double>(offBoresight) / ues.GetN();
+    NS_TEST_ASSERT_MSG_EQ_TOL(fraction,
+                              0.12,
+                              0.03,
+                              "Unexpected share of UEs at the sector borders");
+    Simulator::Destroy();
+}
+
 class NrHexagonalGridDeploymentTestSuite : public TestSuite
 {
   public:
@@ -232,6 +314,7 @@ class NrHexagonalGridDeploymentTestSuite : public TestSuite
         : TestSuite("nr-hexagonal-deployment", Type::UNIT)
     {
         AddTestCase(new NrHexagonalGridDeploymentTestCase(), Duration::QUICK);
+        AddTestCase(new NrHexagonalGridUeDropTestCase(), Duration::QUICK);
     }
 };
 

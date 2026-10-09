@@ -154,6 +154,15 @@ Bugs fixed
 - Fixed ``ResourceAssignmentMatrix::GetAssignedResourcesToUe()`` reporting every
   resource as ``ResourceType::EMPTY``. It now reports the type each resource was
   assigned with. Covered by the ``nr-resource-assignment-matrix`` test suite.
+- Fixed ``HexagonalGridScenarioHelper`` placing the indoor UEs at continuous
+  heights: their floor is now an integer, uniform in 1 to N_fl, with N_fl
+  uniform in 4 to 8 (TR 38.901 Table 7.4.1-1).
+- Fixed ``HexagonalGridScenarioHelper`` dropping the UEs of each sector in the
+  disc inscribed in its hexagon, shrunk by the minimum BS-UT distance: about a
+  third of the cell, the corners and the borders between sectors, was never
+  populated, which made the geometry about 3 dB too favorable at the median.
+  The UEs are now dropped uniformly in the hexagon of their cell, at the
+  minimum BS-UT distance or more from their site.
 - Fixed UEs that connect to a cell without ``NrHelper::AttachToGnb()``, after a
   handover or a radio link failure, getting neither CSI-RS nor a beam from
   their new gNB. Only the gNB of ``AttachToGnb()`` registered a UE, so its new
