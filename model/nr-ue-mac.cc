@@ -1136,8 +1136,7 @@ NrUeMac::SendNewData()
     m_miUlHarqProcessesPacket.at(m_ulDci->m_harqProcess).m_lcidList.clear();
     NS_LOG_INFO("Reset HARQP " << +m_ulDci->m_harqProcess);
 
-    // Sending the status data has no boundary: let's try to send the ACK as
-    // soon as possible, filling the TBS, if necessary.
+    // Send STATUS first, reserving its MAC subheader and the SHORT_BSR.
     SendNewStatusData();
 
     // Let's count how many LC we have, that are waiting with some data
@@ -1155,10 +1154,8 @@ NrUeMac::SendNewData()
         }
     }
 
-    // Of the TBS we received in the DCI, one part is gone for the status pdu,
-    // where we didn't check much as it is the most important data, that has to go
-    // out. For the rest that we have left, we can use only a part of it because of
-    // the overhead of the SHORT_BSR, which is 5 bytes.
+    // STATUS admission already reserved the 5-byte SHORT_BSR.
+    // Use the remaining space for retransmissions and new data.
     NS_ASSERT_MSG(m_ulDciTotalUsed + 5 <= m_ulDci->m_tbSize,
                   "The StatusPDU used " << m_ulDciTotalUsed
                                         << " B, we don't have any for the SHORT_BSR.");
@@ -1234,19 +1231,17 @@ NrUeMac::SendNewStatusData()
 {
     NS_LOG_FUNCTION(this);
 
-    bool hasStatusPdu = false;
-    bool sentOneStatusPdu = false;
-
     for (auto& bsrIt : m_ulBsrReceived)
     {
         auto& bsr = bsrIt.second;
 
         if (bsr.statusPduSize > 0)
         {
-            hasStatusPdu = true;
-
-            // Check if we have room to transmit the statusPdu
-            if (m_ulDciTotalUsed + bsr.statusPduSize <= m_ulDci->m_tbSize)
+            NrMacHeaderVs header;
+            header.SetSize(bsr.statusPduSize);
+            // Reserve the STATUS subheader and the existing 5-byte SHORT_BSR.
+            if (m_ulDciTotalUsed + bsr.statusPduSize + header.GetSerializedSize() + 5 <=
+                m_ulDci->m_tbSize)
             {
                 NrMacSapUser::TxOpportunityParameters txParams;
                 txParams.lcid = bsr.lcid;
@@ -1266,7 +1261,6 @@ NrUeMac::SendNewStatusData()
                 // correct amount of bytes... but it is up to us in updating the BSR
                 // value, subtracting the amount of bytes transmitted
                 bsr.statusPduSize = 0;
-                sentOneStatusPdu = true;
             }
             else
             {
@@ -1275,11 +1269,6 @@ NrUeMac::SendNewStatusData()
             }
         }
     }
-
-    NS_ABORT_MSG_IF(hasStatusPdu && !sentOneStatusPdu,
-                    "The TBS of size " << m_ulDci->m_tbSize
-                                       << " doesn't allow us "
-                                          "to send one status PDU...");
 }
 
 void
