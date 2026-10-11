@@ -1604,11 +1604,12 @@ NrSpectrumPhy::GetMimoSinrForRnti(uint16_t rnti, uint8_t rank)
 }
 
 void
-TransportBlockInfo::UpdatePerceivedSinr(const SpectrumValue& perceivedSinr)
+TransportBlockInfo::UpdatePerceivedSinr(const SpectrumValue& perceivedSinr,
+                                        const std::vector<int>& rbMap)
 {
     m_sinrAvg = 0.0;
     m_sinrMin = 99999999999;
-    for (const auto& rbIndex : m_expected.m_rbBitmap)
+    for (const auto& rbIndex : rbMap)
     {
         m_sinrAvg += perceivedSinr.ValuesAt(rbIndex);
         if (perceivedSinr.ValuesAt(rbIndex) < m_sinrMin)
@@ -1617,7 +1618,7 @@ TransportBlockInfo::UpdatePerceivedSinr(const SpectrumValue& perceivedSinr)
         }
     }
 
-    m_sinrAvg = m_sinrAvg / m_expected.m_rbBitmap.size();
+    m_sinrAvg = m_sinrAvg / rbMap.size();
 
     NS_LOG_INFO("Finishing RX, sinrAvg=" << m_sinrAvg << " sinrMin=" << m_sinrMin
                                          << " SinrAvg (dB) " << 10 * log(m_sinrAvg) / log(10));
@@ -1631,7 +1632,7 @@ NrSpectrumPhy::CheckTransportBlockCorruptionStatus()
         auto rnti = tbIt.first;
         auto& tbInfo = tbIt.second;
 
-        tbInfo.UpdatePerceivedSinr(m_sinrPerceived);
+        tbInfo.UpdatePerceivedSinr(m_sinrPerceived, tbInfo.m_expected.m_rbBitmap);
 
         if ((!m_dataErrorModelEnabled) || (m_rxPacketBurstList.empty()))
         {
@@ -1682,6 +1683,12 @@ NrSpectrumPhy::CheckTransportBlockCorruptionStatus()
             const auto& expectedTb = tbInfo.m_expected;
             auto sinrChunks = GetMimoSinrForRnti(expectedTb.m_rnti, expectedTb.m_rank);
             NS_ASSERT(!sinrChunks.empty());
+
+            // Report the SINR the error model decodes with, i.e. the per-layer post-equalization
+            // SINR, instead of the SISO SINR computed from the received PSD
+            tbInfo.UpdatePerceivedSinr(
+                m_errorModel->ComputeAvgSinrMimo(sinrChunks).GetVectorizedSpecVal(),
+                m_errorModel->CreateVectorizedRbMap(expectedTb.m_rbBitmap, expectedTb.m_rank));
 
             tbInfo.m_outputOfEM = m_errorModel->GetTbDecodificationStatsMimo(sinrChunks,
                                                                              expectedTb.m_rbBitmap,

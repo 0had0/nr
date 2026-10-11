@@ -616,8 +616,9 @@ struct NR_EXPORT TransportBlockInfo
     /**
      * @brief Update minimum and average SINR of the transport block based on perceived SINR
      * @param perceivedSinr SpectrumValue with perceived SINR
+     * @param rbMap Indices of the perceivedSinr values used by the transport block
      */
-    void UpdatePerceivedSinr(const SpectrumValue& perceivedSinr);
+    void UpdatePerceivedSinr(const SpectrumValue& perceivedSinr, const std::vector<int>& rbMap);
 
     ExpectedTb m_expected;          //!< Expected data from the PHY. Filled by AddExpectedTb
     bool m_isCorrupted{false};      //!< True if the ErrorModel indicates that the TB is corrupted.
