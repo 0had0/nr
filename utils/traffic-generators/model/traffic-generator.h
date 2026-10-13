@@ -12,6 +12,7 @@
 #include "ns3/event-id.h"
 #include "ns3/nr-export.h"
 #include "ns3/ptr.h"
+#include "ns3/seq-ts-size-header.h"
 #include "ns3/traced-callback.h"
 
 namespace ns3
@@ -221,6 +222,12 @@ class NR_EXPORT TrafficGenerator : public Application
     uint16_t m_tgId{0};            //!< traffic generator ID for the tracing purposes
     uint16_t m_packetId{
         0}; //!< packetId of the current flow, when it reaches the maximum value starts from zero
+    bool m_enableSeqTsSizeHeader{false}; //!< Enable or disable the use of SeqTsSizeHeader
+    uint32_t m_seq{0};                   //!< Sequence number
+    /// Callback for tracing the packet Tx events, includes source, destination, the packet sent,
+    /// and header
+    TracedCallback<Ptr<const Packet>, const Address&, const Address&, const SeqTsSizeHeader&>
+        m_txTraceWithSeqTsSize;
 };
 
 } // namespace ns3

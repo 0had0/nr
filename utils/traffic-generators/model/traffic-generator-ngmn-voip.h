@@ -121,6 +121,7 @@ class NR_EXPORT TrafficGeneratorNgmnVoip : public TrafficGenerator
     EventId m_updateState;               //! saves the event for the next update of the state
     double m_a{0.0}; //!< The probability of transitioning from the active to the inactive state
     double m_c{0.0}; //!< The probability of transitioning from the inactive to the active state
+    bool m_sidEnabled{true}; //!< Flag to enable or disable sending SIDs during inactive state
 };
 
 } // namespace ns3
