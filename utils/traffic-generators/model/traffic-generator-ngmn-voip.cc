@@ -207,7 +207,7 @@ TrafficGeneratorNgmnVoip::GetNextPacketTime() const
     }
     else
     {
-        return Seconds((double)(m_activePayload * 8) / 12200);
+        return MilliSeconds(m_encoderFrameLength);
     }
 }
 

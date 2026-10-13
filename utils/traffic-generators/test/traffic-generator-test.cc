@@ -452,7 +452,7 @@ TrafficGeneratorNgmnGamingTestCase::DoRun()
 }
 
 TrafficGeneratorNgmnVoipTestCase::TrafficGeneratorNgmnVoipTestCase(std::string transportProtocol)
-    : TestCase("(NGMN VoIP throughput == 12.2 Kbps) when " + transportProtocol)
+    : TestCase("(NGMN VoIP average throughput == 8.375 Kbps) when " + transportProtocol)
 {
     m_transportProtocol = transportProtocol;
 }
@@ -528,12 +528,12 @@ TrafficGeneratorNgmnVoipTestCase::DoRun()
     uint64_t totalBytesReceived = packetSink->GetTotalRx();
 
     NS_TEST_ASSERT_MSG_EQ_TOL(((double)totalBytesSent * 8) / durationInSeconds,
-                              6.475e3,
-                              6.475e3 * 0.15,
+                              8.375e3,
+                              8.375e3 * 0.15,
                               "TX: The NGMN VoIP traffic offered throughput is not as expected!");
     NS_TEST_ASSERT_MSG_EQ_TOL(((double)totalBytesReceived * 8) / durationInSeconds,
-                              6.475e3,
-                              6.475e3 * 0.15,
+                              8.375e3,
+                              8.375e3 * 0.15,
                               "RX: The NGMN VoIP traffic received throughput is not as expected!");
 
     Simulator::Destroy();
