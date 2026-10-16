@@ -12,6 +12,8 @@
 
 #include "ns3/ipv4-interface-address.h"
 #include "ns3/ipv4.h"
+#include "ns3/ipv6-interface-address.h"
+#include "ns3/ipv6.h"
 #include "ns3/nr-export.h"
 
 #include <map>
@@ -119,9 +121,9 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrRanEpcHelper
 
   private:
     /**
-     * Select the PGW of a UE that attaches in the network, and set its IPv4 address: its home
-     * address with home-routed roaming, or else its address in this network, assigned on its
-     * first attachment if it has none.
+     * Select the PGW of a UE that attaches in the network, and set its IPv4 and IPv6 addresses
+     * (for the families it has addresses of): its home addresses with home-routed roaming, or
+     * else its addresses in this network, assigned on its first attachment if it has none.
      *
      * @param imsi the IMSI of the UE
      * @param home the MME of the home network of the UE, nullptr for a subscriber
@@ -142,6 +144,20 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrRanEpcHelper
                              int32_t interface,
                              Ipv4InterfaceAddress address,
                              Ipv4Address gateway);
+
+    /**
+     * Set the global IPv6 address of a UE, replacing its address and default route of another
+     * network (its link-local address is kept).
+     *
+     * @param ueIpv6 the IPv6 stack of the UE
+     * @param interface the interface of the NR device of the UE
+     * @param address the address of the UE
+     * @param gateway the default gateway of the UE
+     */
+    static void SetUeAddress6(Ptr<Ipv6> ueIpv6,
+                              int32_t interface,
+                              Ipv6InterfaceAddress address,
+                              Ipv6Address gateway);
 
     /**
      * Create an S8 link between the SGW of a visited network and the PGW of a home network.

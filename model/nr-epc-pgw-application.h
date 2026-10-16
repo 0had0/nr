@@ -151,6 +151,12 @@ class NR_EXPORT NrEpcPgwApplication : public Application
     Ipv4Address GetUeAddress(uint64_t imsi) const;
 
     /**
+     * @param imsi the unique identifier of a previously added UE
+     * @return the IPv6 address of the UE, or the default address if it has none
+     */
+    Ipv6Address GetUeAddress6(uint64_t imsi) const;
+
+    /**
      * set the address of a previously added UE
      *
      * @param imsi the unique identifier of the UE

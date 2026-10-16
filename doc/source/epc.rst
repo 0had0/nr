@@ -89,26 +89,28 @@ local breakout or home-routed roaming:
   network does with an S1-AP UE Context Release Command to the gNB that served the UE, which
   releases its RRC connection if it still has it, and a GTP-C Delete Session procedure (S11/S5);
 * with local breakout, the session of a roaming UE is in the PGW of the visited network: the
-  UE gets an IPv4 address of that network (the address of a subscriber in its home network is
-  restored when it comes back), with its default route through the PGW of that network;
+  UE gets an IPv4 address of the UE network of that network, and an IPv6 address with the IPv6
+  prefix of that network and the interface identifier of its device (for the address families
+  it has addresses of), with its default routes through the PGW of that network; the addresses
+  of a subscriber in its home network are restored when it comes back;
 * with home-routed roaming, the SGW of each network is connected to the PGW of the other one
   with an S8 link (``S8Link*`` attributes): the MME of the visited network gives the address of
   the PGW of the home network to its SGW in the Create Session Request (PGW S5/S8 address for the
   control plane), so that the session of a roaming UE is in the PGW of its home network, and the
-  UE keeps its home address. The PGW sends the downlink packets and the GTP-C messages of a
-  session to the SGW that created it, and ignores the deletion of a session by an SGW that no
-  longer has it.
+  UE keeps its home IPv4 and IPv6 addresses. The PGW sends the downlink packets and the GTP-C
+  messages of a session to the SGW that created it, and ignores the deletion of a session by an
+  SGW that no longer has it.
 
 The ``Attach`` and ``CancelLocation`` trace sources of ``NrEpcMmeApplication`` report the
 attachments of the UEs (roaming or not) and the deletions of their sessions. There is no
 handover between core networks: a UE moves to another network as it leaves the coverage of its
 network, with a radio link failure followed by the selection of a cell of the other network,
-where it attaches. The test suite ``nr-core-roaming`` moves a UE from its home network to a
-visited network and back, with local breakout and home-routed roaming.
+where it attaches. The test suite ``nr-core-roaming`` moves a dual-stack UE from its home
+network to a visited network and back, with local breakout and home-routed roaming, and from a
+network with local breakout to a network with home-routed roaming.
 
-The roaming model has the following limitations: the subscription data is made of the QoS
-flows of the UE only (no authentication); only IPv4 addresses are assigned in the visited
-networks.
+The roaming model has the following limitation: the subscription data is made of the QoS flows
+of the UE only (no authentication).
 
 QoS configuration
 =================

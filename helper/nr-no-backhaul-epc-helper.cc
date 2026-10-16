@@ -15,6 +15,7 @@
 #include "ns3/ipv4-address.h"
 #include "ns3/ipv4-routing-table-entry.h"
 #include "ns3/ipv4-static-routing-helper.h"
+#include "ns3/ipv6-routing-table-entry.h"
 #include "ns3/ipv6-static-routing-helper.h"
 #include "ns3/log.h"
 #include "ns3/node-list.h"
@@ -404,11 +405,14 @@ NrNoBackhaulEpcHelper::UeAttached(uint64_t imsi, NrEpcMmeApplication* home)
             ueDevice = device && device->GetImsi() == imsi ? device : nullptr;
         }
     }
+    // the IPv4 and IPv6 interfaces of the NR device of the UE, if it has addresses of the family
     Ptr<Ipv4> ueIpv4 = ueDevice ? ueDevice->GetNode()->GetObject<Ipv4>() : nullptr;
     const int32_t interface = ueIpv4 ? ueIpv4->GetInterfaceForDevice(ueDevice) : -1;
+    Ptr<Ipv6> ueIpv6 = ueDevice ? ueDevice->GetNode()->GetObject<Ipv6>() : nullptr;
+    const int32_t interface6 = ueIpv6 ? ueIpv6->GetInterfaceForDevice(ueDevice) : -1;
 
     // Home-routed roaming: the session is in the PGW of the home network, through the S8 link,
-    // and the UE keeps its home address
+    // and the UE keeps its home addresses
     auto homeRouted = home ? m_homeRoutedPartners.find(home) : m_homeRoutedPartners.end();
     if (homeRouted != m_homeRoutedPartners.end())
     {
@@ -421,32 +425,57 @@ NrNoBackhaulEpcHelper::UeAttached(uint64_t imsi, NrEpcMmeApplication* home)
                                               homeHelper->m_ueIpv4Mask),
                          homeHelper->GetUeDefaultGatewayAddress());
         }
+        const Ipv6Address address6 = homeHelper->m_pgwApp->GetUeAddress6(imsi);
+        if (interface6 >= 0 && address6 != Ipv6Address::GetAny())
+        {
+            SetUeAddress6(ueIpv6,
+                          interface6,
+                          Ipv6InterfaceAddress(address6, Ipv6Prefix(64)),
+                          homeHelper->GetUeDefaultGatewayAddress6());
+        }
         return homeHelper->m_pgwS5Address;
     }
 
     // a subscriber, or a UE roaming with local breakout: the session is in the PGW of this
-    // network
-    if (interface < 0)
+    // network, with the addresses of the UE in this network, assigned on its first attachment
+    // if it has none
+    if (interface < 0 && interface6 < 0)
     {
-        // not an NR UE device with IPv4 (e.g., in the S1-U tests, or IPv6 only): its address is
-        // set by its owner
+        // not an NR UE device with an address (e.g., in the S1-U tests): its address is set by
+        // its owner
         return Ipv4Address();
     }
     if (!m_pgwApp->HasUe(imsi))
     {
         m_pgwApp->AddUe(imsi);
     }
-    Ipv4Address address = m_pgwApp->GetUeAddress(imsi);
-    if (address == Ipv4Address())
+    if (interface >= 0)
     {
-        // the first attachment of a roaming UE in this network
-        address = m_uePgwAddressHelper.NewAddress();
-        m_pgwApp->SetUeAddress(imsi, address);
+        Ipv4Address address = m_pgwApp->GetUeAddress(imsi);
+        if (address == Ipv4Address())
+        {
+            address = m_uePgwAddressHelper.NewAddress();
+            m_pgwApp->SetUeAddress(imsi, address);
+        }
+        SetUeAddress(ueIpv4,
+                     interface,
+                     Ipv4InterfaceAddress(address, m_ueIpv4Mask),
+                     GetUeDefaultGatewayAddress());
     }
-    SetUeAddress(ueIpv4,
-                 interface,
-                 Ipv4InterfaceAddress(address, m_ueIpv4Mask),
-                 GetUeDefaultGatewayAddress());
+    if (interface6 >= 0)
+    {
+        Ipv6Address address6 = m_pgwApp->GetUeAddress6(imsi);
+        if (address6 == Ipv6Address::GetAny())
+        {
+            // the prefix of this network, with the interface identifier of the device
+            address6 = m_uePgwAddressHelper6.NewAddress(ueDevice->GetAddress());
+            m_pgwApp->SetUeAddress6(imsi, address6);
+        }
+        SetUeAddress6(ueIpv6,
+                      interface6,
+                      Ipv6InterfaceAddress(address6, Ipv6Prefix(64)),
+                      GetUeDefaultGatewayAddress6());
+    }
     return Ipv4Address();
 }
 
@@ -469,6 +498,54 @@ NrNoBackhaulEpcHelper::SetUeAddress(Ptr<Ipv4> ueIpv4,
     }
     ueIpv4->AddAddress(interface, address);
     Ptr<Ipv4StaticRouting> routing = Ipv4StaticRoutingHelper().GetStaticRouting(ueIpv4);
+    for (uint32_t route = routing->GetNRoutes(); route > 0; route--)
+    {
+        if (routing->GetRoute(route - 1).IsDefault())
+        {
+            routing->RemoveRoute(route - 1);
+        }
+    }
+    routing->SetDefaultRoute(gateway, interface);
+}
+
+void
+NrNoBackhaulEpcHelper::SetUeAddress6(Ptr<Ipv6> ueIpv6,
+                                     int32_t interface,
+                                     Ipv6InterfaceAddress address,
+                                     Ipv6Address gateway)
+{
+    // the global addresses of the UE are replaced, its link-local address is kept
+    bool present = false;
+    std::vector<Ipv6Address> others;
+    for (uint32_t i = 0; i < ueIpv6->GetNAddresses(interface); i++)
+    {
+        const auto current = ueIpv6->GetAddress(interface, i);
+        if (current.GetScope() == Ipv6InterfaceAddress::GLOBAL)
+        {
+            if (current.GetAddress() == address.GetAddress())
+            {
+                present = true;
+            }
+            else
+            {
+                others.push_back(current.GetAddress());
+            }
+        }
+    }
+    if (present && others.empty())
+    {
+        return;
+    }
+    NS_LOG_INFO("UE address " << address.GetAddress());
+    for (const auto& other : others)
+    {
+        ueIpv6->RemoveAddress(interface, other);
+    }
+    if (!present)
+    {
+        ueIpv6->AddAddress(interface, address);
+    }
+    Ptr<Ipv6StaticRouting> routing = Ipv6StaticRoutingHelper().GetStaticRouting(ueIpv6);
     for (uint32_t route = routing->GetNRoutes(); route > 0; route--)
     {
         if (routing->GetRoute(route - 1).IsDefault())

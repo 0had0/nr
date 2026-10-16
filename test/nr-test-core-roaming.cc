@@ -12,10 +12,11 @@
  * Each move causes a radio link failure, after which the UE selects the gNB of the other network
  * and attaches there. The test checks the attachments (roaming or not) in the MMEs of both
  * networks, the deletion of the session in the network the UE leaves (Cancel Location), the
- * address of the UE in each network, and the remote host that echoes the UDP packets of the UE:
- * with local breakout, the UE gets an address of the visited network, whose remote host only
- * answers while the UE is there; with home-routed roaming, the UE keeps its home address, and the
- * remote host of its home network answers in both networks, through the S8 link.
+ * IPv4 and IPv6 addresses of the UE in each network, and the remote hosts (IPv4 and IPv6) that
+ * echo the UDP packets of the UE: with local breakout, the UE gets addresses of the visited
+ * network, whose remote hosts only answer while the UE is there; with home-routed roaming, the UE
+ * keeps its home addresses, and the remote hosts of its home network answer in both networks,
+ * through the S8 link.
  */
 
 #include "ns3/core-module.h"
@@ -82,6 +83,15 @@ class NrCoreRoamingTestCase : public TestCase
     {
         auto ipv4 = ue->GetObject<Ipv4>();
         m_addresses[key] = ipv4->GetAddress(1, 0).GetLocal();
+        auto ipv6 = ue->GetObject<Ipv6>();
+        const int32_t interface6 = ipv6->GetInterfaceForDevice(ue->GetDevice(0));
+        for (uint32_t i = 0; i < ipv6->GetNAddresses(interface6); i++)
+        {
+            if (ipv6->GetAddress(interface6, i).GetScope() == Ipv6InterfaceAddress::GLOBAL)
+            {
+                m_addresses6[key].push_back(ipv6->GetAddress(interface6, i).GetAddress());
+            }
+        }
     }
 
     /**
@@ -99,7 +109,9 @@ class NrCoreRoamingTestCase : public TestCase
     std::vector<std::string> m_attachments;         ///< attachments: network/cell/roaming
     std::vector<std::string> m_cancellations;       ///< networks that deleted the session
     std::map<std::string, Ipv4Address> m_addresses; ///< addresses of the UE, by period
-    std::map<std::string, uint32_t> m_echoes;       ///< echoes received, by host and period
+    /// global IPv6 addresses of the UE, by period
+    std::map<std::string, std::vector<Ipv6Address>> m_addresses6;
+    std::map<std::string, uint32_t> m_echoes; ///< echoes received, by host and period
 };
 
 void
@@ -126,6 +138,9 @@ NrCoreRoamingTestCase::DoRun()
     auto [homeHost, homeHostAddress] = home->SetupRemoteHost("100Gb/s", 1500, MilliSeconds(10));
     auto [visitedHost, visitedHostAddress] =
         visited->SetupRemoteHost("100Gb/s", 1500, MilliSeconds(10));
+    auto [homeHost6, homeHostAddress6] = home->SetupRemoteHost6("100Gb/s", 1500, MilliSeconds(10));
+    auto [visitedHost6, visitedHostAddress6] =
+        visited->SetupRemoteHost6("100Gb/s", 1500, MilliSeconds(10));
     home->GetMmeApplication()->TraceConnect("Attach",
                                             "home",
                                             MakeCallback(&NrCoreRoamingTestCase::Attach, this));
@@ -171,14 +186,20 @@ NrCoreRoamingTestCase::DoRun()
     Ipv4StaticRoutingHelper routing;
     routing.GetStaticRouting(ueNodes.Get(0)->GetObject<Ipv4>())
         ->SetDefaultRoute(home->GetUeDefaultGatewayAddress(), 1);
+    // dual stack: an IPv6 address as well, with its default route
+    home->AssignUeIpv6Address(ueDevices);
     nrHelper->AttachToGnb(ueDevices.Get(0), homeGnb.Get(0));
 
     // the UE sends packets to both remote hosts, each one reachable from its network only
     UdpEchoServerHelper echoServer(9);
-    echoServer.Install(homeHost).Start(Seconds(0.5));
-    echoServer.Install(visitedHost).Start(Seconds(0.5));
-    for (const auto& [host, address] :
-         {std::pair{"home", homeHostAddress}, std::pair{"visited", visitedHostAddress}})
+    for (const auto& host : {homeHost, visitedHost, homeHost6, visitedHost6})
+    {
+        echoServer.Install(host).Start(Seconds(0.5));
+    }
+    for (const auto& [host, address] : {std::pair{"home", Address(homeHostAddress)},
+                                        std::pair{"visited", Address(visitedHostAddress)},
+                                        std::pair{"home6", Address(homeHostAddress6)},
+                                        std::pair{"visited6", Address(visitedHostAddress6)}})
     {
         UdpEchoClientHelper echoClient(address, 9);
         echoClient.SetAttribute("Interval", TimeValue(MilliSeconds(100)));
@@ -232,21 +253,202 @@ NrCoreRoamingTestCase::DoRun()
     NS_TEST_EXPECT_MSG_EQ(m_addresses["home again"],
                           Ipv4Address("7.0.0.2"),
                           "Home address not restored");
+    // IPv6: the prefix of the network of the session, with the interface identifier of the UE
+    for (const auto& period : {"home", "visited", "home again"})
+    {
+        NS_TEST_EXPECT_MSG_EQ(m_addresses6[period].size(),
+                              1,
+                              "Not a single global IPv6 address while " << period);
+        m_addresses6[period].resize(1);
+    }
+    const Ipv6Prefix prefix(64);
+    const Ipv6Address homePrefix = m_addresses6["home"][0].CombinePrefix(prefix);
+    const Ipv6Address visitedPrefix = m_addresses6["visited"][0].CombinePrefix(prefix);
+    NS_TEST_EXPECT_MSG_EQ(homePrefix, Ipv6Address("7777:f00d::"), "Wrong home IPv6 prefix");
+    NS_TEST_EXPECT_MSG_EQ(visitedPrefix,
+                          Ipv6Address(m_homeRouted ? "7777:f00d::" : "7777:f00d:0:1::"),
+                          "Wrong IPv6 prefix in the visited network");
+    NS_TEST_EXPECT_MSG_EQ(m_addresses6["home again"][0],
+                          m_addresses6["home"][0],
+                          "Home IPv6 address not restored");
     // the network of the session: the visited network with local breakout, the home network
     // with home-routed roaming
     const std::string roamingHost = m_homeRouted ? "home" : "visited";
     const std::string otherHost = m_homeRouted ? "visited" : "home";
-    NS_TEST_EXPECT_MSG_GT(m_echoes["home host while home"], 10, "No traffic at home");
-    NS_TEST_EXPECT_MSG_GT(m_echoes[roamingHost + " host while visited"],
-                          10,
-                          "No traffic while roaming");
-    NS_TEST_EXPECT_MSG_GT(m_echoes["home host while home again"], 10, "No traffic back home");
-    NS_TEST_EXPECT_MSG_EQ(m_echoes["visited host while home"] +
-                              m_echoes["visited host while home again"] +
-                              m_echoes[otherHost + " host while visited"],
-                          0,
-                          "Traffic through a network that does not have the session");
+    for (const std::string family : {"", "6"})
+    {
+        NS_TEST_EXPECT_MSG_GT(m_echoes["home" + family + " host while home"],
+                              10,
+                              "No traffic at home, IPv" << (family.empty() ? 4 : 6));
+        NS_TEST_EXPECT_MSG_GT(m_echoes[roamingHost + family + " host while visited"],
+                              10,
+                              "No traffic while roaming, IPv" << (family.empty() ? 4 : 6));
+        NS_TEST_EXPECT_MSG_GT(m_echoes["home" + family + " host while home again"],
+                              10,
+                              "No traffic back home, IPv" << (family.empty() ? 4 : 6));
+        NS_TEST_EXPECT_MSG_EQ(m_echoes["visited" + family + " host while home"] +
+                                  m_echoes["visited" + family + " host while home again"] +
+                                  m_echoes[otherHost + family + " host while visited"],
+                              0,
+                              "Traffic through a network that does not have the session, IPv"
+                                  << (family.empty() ? 4 : 6));
+    }
 
+    Simulator::Destroy();
+}
+
+/**
+ * @ingroup test
+ * @brief Roaming of a dual-stack UE from its home network to a visited network with local
+ * breakout, then to a visited network with home-routed roaming: in the latter, the UE gets its
+ * home IPv4 and IPv6 addresses back, and reaches the remote hosts of its home network.
+ */
+class NrMixedRoamingTestCase : public TestCase
+{
+  public:
+    NrMixedRoamingTestCase()
+        : TestCase("Roaming with local breakout, then home-routed")
+    {
+    }
+
+  private:
+    void DoRun() override;
+
+    /**
+     * Count an echo, in the period of its reception.
+     * @param host the remote host that echoed the packet
+     * @param packet the echoed packet
+     */
+    void Echo(std::string host, Ptr<const Packet> packet)
+    {
+        const double t = Simulator::Now().GetSeconds();
+        m_echoes[host + (t < 3 ? " at home" : (t < 9 ? " in local breakout" : " home-routed"))]++;
+    }
+
+    std::map<std::string, uint32_t> m_echoes; ///< echoes received, by host and period
+};
+
+void
+NrMixedRoamingTestCase::DoRun()
+{
+    RngSeedManager::SetSeed(1);
+    RngSeedManager::SetRun(1);
+    Config::SetDefault("ns3::NrHelper::UseIdealRrc", BooleanValue(true));
+    Config::SetDefault("ns3::NrGnbPhy::TxPower", DoubleValue(40));
+    Config::SetDefault("ns3::ThreeGppPropagationLossModel::ShadowingEnabled", BooleanValue(false));
+    Config::SetDefault("ns3::NrUeRrc::N310", UintegerValue(1));
+    Config::SetDefault("ns3::NrUeRrc::N311", UintegerValue(1));
+    Config::SetDefault("ns3::NrUeRrc::T310", TimeValue(Seconds(1)));
+
+    auto home = CreateObject<NrPointToPointEpcHelper>();
+    auto localBreakout =
+        CreateObjectWithAttributes<NrPointToPointEpcHelper>("UeIpv4Network",
+                                                            Ipv4AddressValue("8.0.0.0"));
+    auto homeRouted =
+        CreateObjectWithAttributes<NrPointToPointEpcHelper>("UeIpv4Network",
+                                                            Ipv4AddressValue("9.0.0.0"));
+    home->AddRoamingPartner(localBreakout, false);
+    home->AddRoamingPartner(homeRouted, true);
+    auto [homeHost, homeHostAddress] = home->SetupRemoteHost("100Gb/s", 1500, MilliSeconds(10));
+    auto [homeHost6, homeHostAddress6] = home->SetupRemoteHost6("100Gb/s", 1500, MilliSeconds(10));
+
+    NodeContainer gnbNodes(3);
+    NodeContainer ueNodes(1);
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    auto positions = CreateObject<ListPositionAllocator>();
+    positions->Add(Vector(0, 0, 10));
+    positions->Add(Vector(15020, 0, 10));
+    positions->Add(Vector(30040, 0, 10));
+    positions->Add(Vector(10, 0, 1.5));
+    mobility.SetPositionAllocator(positions);
+    mobility.Install(gnbNodes);
+    mobility.Install(ueNodes);
+
+    auto nrHelper = CreateObject<NrHelper>();
+    nrHelper->SetSchedulerTypeId(TypeId::LookupByName("ns3::NrMacSchedulerTdmaRR"));
+    auto bandwidthParts = nrHelper->CreateBandwidthParts({{1.93e9, 10e6, 1}}, "UMa", "LOS");
+    NetDeviceContainer gnbDevices;
+    for (const auto& [i, helper] :
+         {std::pair{0, home}, std::pair{1, localBreakout}, std::pair{2, homeRouted}})
+    {
+        nrHelper->SetEpcHelper(helper);
+        gnbDevices.Add(nrHelper->InstallGnbDevice(gnbNodes.Get(i), bandwidthParts.second));
+    }
+    nrHelper->SetEpcHelper(home);
+    auto ueDevices = nrHelper->InstallUeDevice(ueNodes, bandwidthParts.second);
+    InternetStackHelper internet;
+    internet.Install(ueNodes);
+    home->AssignUeIpv4Address(ueDevices);
+    Ipv4StaticRoutingHelper()
+        .GetStaticRouting(ueNodes.Get(0)->GetObject<Ipv4>())
+        ->SetDefaultRoute(home->GetUeDefaultGatewayAddress(), 1);
+    home->AssignUeIpv6Address(ueDevices);
+    nrHelper->AttachToGnb(ueDevices.Get(0), gnbDevices.Get(0));
+
+    UdpEchoServerHelper echoServer(9);
+    echoServer.Install(homeHost).Start(Seconds(0.5));
+    echoServer.Install(homeHost6).Start(Seconds(0.5));
+    for (const auto& [host, address] : {std::pair{"home host", Address(homeHostAddress)},
+                                        std::pair{"home host 6", Address(homeHostAddress6)}})
+    {
+        UdpEchoClientHelper echoClient(address, 9);
+        echoClient.SetAttribute("Interval", TimeValue(MilliSeconds(100)));
+        echoClient.SetAttribute("MaxPackets", UintegerValue(1000));
+        auto client = echoClient.Install(ueNodes.Get(0));
+        client.Start(Seconds(1));
+        client.Get(0)->TraceConnect("Rx", host, MakeCallback(&NrMixedRoamingTestCase::Echo, this));
+    }
+
+    auto ue = ueNodes.Get(0);
+    auto ueMobility = ue->GetObject<MobilityModel>();
+    Simulator::Schedule(Seconds(3), [ueMobility]() { ueMobility->SetPosition({15000, 0, 1.5}); });
+    Simulator::Schedule(Seconds(9), [ueMobility]() { ueMobility->SetPosition({30020, 0, 1.5}); });
+    // the addresses: at home, in local breakout and home-routed
+    std::vector<std::pair<Ipv4Address, Ipv6Address>> addresses;
+    for (const auto& t : {MilliSeconds(2900), MilliSeconds(8900), MilliSeconds(14900)})
+    {
+        Simulator::Schedule(t, [ue, &addresses]() {
+            auto ipv6 = ue->GetObject<Ipv6>();
+            const int32_t interface6 = ipv6->GetInterfaceForDevice(ue->GetDevice(0));
+            Ipv6Address global;
+            for (uint32_t i = 0; i < ipv6->GetNAddresses(interface6); i++)
+            {
+                if (ipv6->GetAddress(interface6, i).GetScope() == Ipv6InterfaceAddress::GLOBAL)
+                {
+                    global = ipv6->GetAddress(interface6, i).GetAddress();
+                }
+            }
+            addresses.emplace_back(ue->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal(), global);
+        });
+    }
+    Simulator::Stop(Seconds(15));
+    Simulator::Run();
+
+    NS_TEST_EXPECT_MSG_EQ(addresses.size(), 3, "Missing addresses");
+    addresses.resize(3);
+    NS_TEST_EXPECT_MSG_EQ(addresses[1].first,
+                          Ipv4Address("8.0.0.2"),
+                          "Wrong address in local breakout");
+    NS_TEST_EXPECT_MSG_EQ(addresses[1].second.CombinePrefix(Ipv6Prefix(64)),
+                          Ipv6Address("7777:f00d:0:1::"),
+                          "Wrong IPv6 prefix in local breakout");
+    NS_TEST_EXPECT_MSG_EQ(addresses[2].first,
+                          addresses[0].first,
+                          "Home address not restored with home-routed roaming");
+    NS_TEST_EXPECT_MSG_EQ(addresses[2].second,
+                          addresses[0].second,
+                          "Home IPv6 address not restored with home-routed roaming");
+    for (const std::string host : {"home host", "home host 6"})
+    {
+        NS_TEST_EXPECT_MSG_GT(m_echoes[host + " at home"], 10, "No traffic at home");
+        NS_TEST_EXPECT_MSG_EQ(m_echoes[host + " in local breakout"],
+                              0,
+                              "Home host reached in local breakout");
+        NS_TEST_EXPECT_MSG_GT(m_echoes[host + " home-routed"],
+                              10,
+                              "No traffic with home-routed roaming, " << host);
+    }
     Simulator::Destroy();
 }
 
@@ -358,6 +560,7 @@ class NrCoreRoamingTestSuite : public TestSuite
     {
         AddTestCase(new NrCoreRoamingTestCase(false), Duration::QUICK);
         AddTestCase(new NrCoreRoamingTestCase(true), Duration::QUICK);
+        AddTestCase(new NrMixedRoamingTestCase, Duration::QUICK);
         AddTestCase(new NrUeContextReleaseTestCase, Duration::QUICK);
     }
 };

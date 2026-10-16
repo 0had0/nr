@@ -601,6 +601,14 @@ NrEpcPgwApplication::GetUeAddress(uint64_t imsi) const
     return ueit->second->GetUeAddr();
 }
 
+Ipv6Address
+NrEpcPgwApplication::GetUeAddress6(uint64_t imsi) const
+{
+    auto ueit = m_ueInfoByImsiMap.find(imsi);
+    NS_ASSERT_MSG(ueit != m_ueInfoByImsiMap.end(), "unknown IMSI " << imsi);
+    return ueit->second->GetUeAddr6();
+}
+
 void
 NrEpcPgwApplication::SetUeAddress6(uint64_t imsi, Ipv6Address ueAddr)
 {
