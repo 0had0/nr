@@ -73,6 +73,21 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrRanEpcHelper
                                                        std::optional<uint16_t> mtu,
                                                        std::optional<Time> delay) override;
 
+    /**
+     * Make the networks of this helper and of another one roaming partners: each one attaches
+     * the subscribers of the other one, with local breakout. A UE that attaches in a network
+     * gets an IPv4 address of that network, and its session in the network that served it
+     * before is deleted.
+     *
+     * @param partner the helper of the other network
+     */
+    void AddRoamingPartner(Ptr<NrNoBackhaulEpcHelper> partner);
+
+    /**
+     * @return the MME application of the network
+     */
+    Ptr<NrEpcMmeApplication> GetMmeApplication() const;
+
   protected:
     void NotifyConstructionCompleted() override;
 
@@ -94,9 +109,19 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrRanEpcHelper
 
   private:
     /**
+     * Set the IPv4 address of a UE that attaches in the network: its address in the network,
+     * assigned on its first attachment if it has none.
+     *
+     * @param imsi the IMSI of the UE
+     */
+    void UeAttached(uint64_t imsi);
+
+    /**
      * helper to assign IPv4 addresses to UE devices as well as to the TUN device of the SGW/PGW
      */
     Ipv4AddressHelper m_uePgwAddressHelper;
+    Ipv4Address m_ueIpv4Network; ///< IPv4 network of the UEs
+    Ipv4Mask m_ueIpv4Mask;       ///< IPv4 mask of the network of the UEs
     /**
      * helper to assign IPv6 addresses to UE devices as well as to the TUN device of the SGW/PGW
      */

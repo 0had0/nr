@@ -57,7 +57,9 @@ us a note on ns-developers mailing list.
 - Add ``NrSidelinkFilter``, a ``SpectrumTransmitFilter`` that discards gNB-to-gNB and UE-to-UE NR signals, skipping their propagation loss and channel matrix computation. Signals involving non-NR devices are not filtered. It drops sidelink transmissions, so it must not be installed in sidelink scenarios.
 - Add ``NrCoexistenceFilter``, a ``SpectrumTransmitFilter`` that discards the signals exchanged between NR and non-NR devices, skipping their propagation loss and channel matrix computation. It removes the interference between NR and the other technologies, so it must not be installed in coexistence scenarios.
 - Add the ``NrChannelHelper::AddFilters`` attribute, a bitmask of ``NrChannelHelper::Filter`` values (``CSIRS``, ``SIDELINK``, ``COEXISTENCE``) selecting the transmit filters installed on the spectrum channels it creates. It defaults to ``CSIRS`` only, which keeps the previous behavior, and must be set before the channels are created.
-- Add the GTP-C Delete Session procedure (``NrGtpcDeleteSessionRequestMessage``, ``NrGtpcDeleteSessionResponseMessage``), with which the MME deletes the session of a UE in the SGW and the PGW.
+- Add roaming between the core networks of a simulation, with local breakout: ``NrNoBackhaulEpcHelper::AddRoamingPartner()`` makes two core networks roaming partners, ``NrEpcMmeApplication::UpdateLocation()`` and ``NrEpcMmeApplication::CancelLocation()`` exchange the subscription of a UE and release its session in the network that served it before, and the ``Attach`` and ``CancelLocation`` trace sources of ``NrEpcMmeApplication`` report the attachments and the deletions of the sessions. Add ``NrNoBackhaulEpcHelper::GetMmeApplication()``.
+- Add the ``NrNoBackhaulEpcHelper::UeIpv4Network`` and ``NrNoBackhaulEpcHelper::UeIpv4Mask`` attributes, the IPv4 network of the UEs of a core network (7.0.0.0/8 by default).
+- Add the GTP-C Delete Session procedure (``NrGtpcDeleteSessionRequestMessage``, ``NrGtpcDeleteSessionResponseMessage``), with which the MME deletes the session of a UE in the SGW and the PGW, and ``NrEpcPgwApplication::HasUe()`` and ``NrEpcPgwApplication::GetUeAddress()``.
 - Add the ``NrUePowerControl::P0Srs`` attribute (-80 dBm by default, from -202 to 24 dBm as the ``p0`` field of ``SRS-Config`` in TS 38.331), the ``P0`` of the SRS power control formula of TS 38.213 clause 7.3.1, used when ``TSpec`` is ``TS38.213``.
 
 ### Changes to Existing API
@@ -70,6 +72,7 @@ us a note on ns-developers mailing list.
 
 ### Changed Behavior
 
+- A simulation can have several core networks: ``NrHelper`` connects the gNBs to the core network of the EPC helper set when they are installed, and activates the QoS flows of each UE in the core network of the EPC helper set when the UE was installed (its home network), instead of the EPC helper set last. The core networks after the first one use their own addresses for their internal links (``10.<index>.0.0`` for S1-U, and so on) and remote host networks (``1.<index>.0.0/16``); the first one keeps the previous addresses.
 - The GTP-U packets between the gNBs and the SGW now carry the PDU Session Container extension header, with the QFI, in both directions (4 more octets per packet), and the gNB maps the downlink packets to their QoS flow with it.
 - ``NrGtpuHeader`` now omits the optional fields when none of the E, S and PN flags is set, and no longer sets the spare bit of the first octet (TS 29.281).
 - A HARQ process now ends by transmission attempts instead of ``rv == 3``. The PHY clears the soft buffer when a new transport block arrives (NDI == 1) instead of when ``rv == 3``. RV can exceed 3 when ``MaxHarqReTx`` exceeds 3.

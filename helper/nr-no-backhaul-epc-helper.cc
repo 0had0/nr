@@ -11,9 +11,13 @@
 #include "ns3/iana-ieee802-numbers.h"
 #include "ns3/icmpv6-l4-protocol.h"
 #include "ns3/internet-stack-helper.h"
+#include "ns3/ipv4-address-generator.h"
+#include "ns3/ipv4-address.h"
+#include "ns3/ipv4-routing-table-entry.h"
 #include "ns3/ipv4-static-routing-helper.h"
 #include "ns3/ipv6-static-routing-helper.h"
 #include "ns3/log.h"
+#include "ns3/node-list.h"
 #include "ns3/nr-epc-gnb-application.h"
 #include "ns3/nr-epc-mme-application.h"
 #include "ns3/nr-epc-pgw-application.h"
@@ -32,6 +36,26 @@ namespace ns3
 NS_LOG_COMPONENT_DEFINE("NrNoBackhaulEpcHelper");
 
 NS_OBJECT_ENSURE_REGISTERED(NrNoBackhaulEpcHelper);
+
+namespace
+{
+
+/**
+ * @param base an IPv6 prefix of /64 or shorter
+ * @param coreIndex the index of a core network
+ * @return the prefix with the index of the core network in its 7th and 8th octets
+ */
+Ipv6Address
+CoreIpv6Prefix(const char* base, uint32_t coreIndex)
+{
+    uint8_t bytes[16];
+    Ipv6Address(base).GetBytes(bytes);
+    bytes[6] = static_cast<uint8_t>(coreIndex >> 8);
+    bytes[7] = static_cast<uint8_t>(coreIndex);
+    return Ipv6Address(bytes);
+}
+
+} // namespace
 
 NrNoBackhaulEpcHelper::NrNoBackhaulEpcHelper()
     : m_gtpuUdpPort(2152), // fixed by the standard
@@ -56,14 +80,18 @@ NrNoBackhaulEpcHelper::NotifyConstructionCompleted()
     // since we use point-to-point links for links between the core network nodes,
     // we use a /30 subnet which can hold exactly two addresses
     // (remember that net broadcast and null address are not valid)
-    m_s11Ipv4AddressHelper.SetBase("13.0.0.0", "255.255.255.252");
-    m_s5Ipv4AddressHelper.SetBase("14.0.0.0", "255.255.255.252");
+    m_s11Ipv4AddressHelper.SetBase(GetCoreSubnet(13), "255.255.255.252");
+    m_s5Ipv4AddressHelper.SetBase(GetCoreSubnet(14), "255.255.255.252");
 
-    // we use a /8 net for all UEs
-    m_uePgwAddressHelper.SetBase("7.0.0.0", "255.0.0.0");
+    // the first address of the UE network is the one of the TUN device of the PGW
+    NS_ABORT_MSG_IF(
+        Ipv4AddressGenerator::IsAddressAllocated(Ipv4Address(m_ueIpv4Network.Get() + 1)),
+        "Another core network uses the UE network " << m_ueIpv4Network
+                                                    << ": set the UeIpv4Network attribute");
+    m_uePgwAddressHelper.SetBase(m_ueIpv4Network, m_ueIpv4Mask);
 
     // we use a /64 IPv6 net all UEs
-    m_uePgwAddressHelper6.SetBase("7777:f00d::", Ipv6Prefix(64));
+    m_uePgwAddressHelper6.SetBase(CoreIpv6Prefix("7777:f00d::", GetCoreIndex()), Ipv6Prefix(64));
 
     // Create PGW, SGW and MME nodes
     m_pgw = CreateObject<Node>();
@@ -81,7 +109,11 @@ NrNoBackhaulEpcHelper::NotifyConstructionCompleted()
     Ipv6StaticRoutingHelper ipv6RoutingHelper;
     Ptr<Ipv6StaticRouting> pgwStaticRouting =
         ipv6RoutingHelper.GetStaticRouting(m_pgw->GetObject<Ipv6>());
-    pgwStaticRouting->AddNetworkRouteTo("7777:f00d::", Ipv6Prefix(64), Ipv6Address("::"), 1, 0);
+    pgwStaticRouting->AddNetworkRouteTo(CoreIpv6Prefix("7777:f00d::", GetCoreIndex()),
+                                        Ipv6Prefix(64),
+                                        Ipv6Address("::"),
+                                        1,
+                                        0);
 
     // create TUN device implementing tunneling of user data over GTP-U/UDP/IP in the PGW
     m_tunDevice = CreateObject<VirtualNetDevice>();
@@ -213,6 +245,7 @@ NrNoBackhaulEpcHelper::NotifyConstructionCompleted()
     // Create MME Application and connect with SGW via S11 interface
     m_mmeApp = CreateObject<NrEpcMmeApplication>();
     m_mme->AddApplication(m_mmeApp);
+    m_mmeApp->SetUeAttachCallback(MakeCallback(&NrNoBackhaulEpcHelper::UeAttached, this));
     m_mmeApp->AddSgw(sgwS11Address, mmeS11Address, mmeS11Socket);
     m_sgwApp->AddMme(mmeS11Address, sgwS11Socket);
 }
@@ -231,6 +264,16 @@ NrNoBackhaulEpcHelper::GetTypeId()
             .SetParent<NrRanEpcHelper>()
             .SetGroupName("Nr")
             .AddConstructor<NrNoBackhaulEpcHelper>()
+            .AddAttribute("UeIpv4Network",
+                          "The IPv4 network of the UEs, from which the UE addresses are assigned",
+                          Ipv4AddressValue("7.0.0.0"),
+                          MakeIpv4AddressAccessor(&NrNoBackhaulEpcHelper::m_ueIpv4Network),
+                          MakeIpv4AddressChecker())
+            .AddAttribute("UeIpv4Mask",
+                          "The mask of the IPv4 network of the UEs",
+                          Ipv4MaskValue("255.0.0.0"),
+                          MakeIpv4MaskAccessor(&NrNoBackhaulEpcHelper::m_ueIpv4Mask),
+                          MakeIpv4MaskChecker())
             .AddAttribute("S5LinkDataRate",
                           "The data rate to be used for the next S5 link to be created",
                           DataRateValue(DataRate("10Gb/s")),
@@ -277,6 +320,81 @@ NrNoBackhaulEpcHelper::DoDispose()
     m_pgw->Dispose();
     m_mmeApp = nullptr;
     m_mme->Dispose();
+}
+
+void
+NrNoBackhaulEpcHelper::AddRoamingPartner(Ptr<NrNoBackhaulEpcHelper> partner)
+{
+    NS_LOG_FUNCTION(this << partner);
+    m_mmeApp->AddRoamingPartner(partner->m_mmeApp);
+    partner->m_mmeApp->AddRoamingPartner(m_mmeApp);
+}
+
+Ptr<NrEpcMmeApplication>
+NrNoBackhaulEpcHelper::GetMmeApplication() const
+{
+    return m_mmeApp;
+}
+
+void
+NrNoBackhaulEpcHelper::UeAttached(uint64_t imsi)
+{
+    NS_LOG_FUNCTION(this << imsi);
+    Ptr<NrUeNetDevice> ueDevice;
+    for (auto node = NodeList::Begin(); node != NodeList::End() && !ueDevice; ++node)
+    {
+        for (uint32_t i = 0; i < (*node)->GetNDevices() && !ueDevice; i++)
+        {
+            auto device = DynamicCast<NrUeNetDevice>((*node)->GetDevice(i));
+            ueDevice = device && device->GetImsi() == imsi ? device : nullptr;
+        }
+    }
+    if (!ueDevice)
+    {
+        // not an NR UE device (e.g., in the S1-U tests): its address is set by its owner
+        return;
+    }
+    Ptr<Ipv4> ueIpv4 = ueDevice->GetNode()->GetObject<Ipv4>();
+    const int32_t interface = ueIpv4 ? ueIpv4->GetInterfaceForDevice(ueDevice) : -1;
+    if (interface < 0)
+    {
+        // without IPv4 address, e.g., IPv6 only
+        return;
+    }
+
+    if (!m_pgwApp->HasUe(imsi))
+    {
+        m_pgwApp->AddUe(imsi);
+    }
+    Ipv4Address address = m_pgwApp->GetUeAddress(imsi);
+    if (address == Ipv4Address())
+    {
+        // the first attachment of a roaming UE in this network
+        address = m_uePgwAddressHelper.NewAddress();
+        m_pgwApp->SetUeAddress(imsi, address);
+    }
+
+    // the UE address in this network, which the UE gets with its PDU session
+    if (ueIpv4->GetNAddresses(interface) == 1 &&
+        ueIpv4->GetAddress(interface, 0).GetLocal() == address)
+    {
+        return;
+    }
+    NS_LOG_INFO("IMSI " << imsi << " gets address " << address);
+    while (ueIpv4->GetNAddresses(interface) > 0)
+    {
+        ueIpv4->RemoveAddress(interface, 0);
+    }
+    ueIpv4->AddAddress(interface, Ipv4InterfaceAddress(address, m_ueIpv4Mask));
+    Ptr<Ipv4StaticRouting> routing = Ipv4StaticRoutingHelper().GetStaticRouting(ueIpv4);
+    for (uint32_t route = routing->GetNRoutes(); route > 0; route--)
+    {
+        if (routing->GetRoute(route - 1).IsDefault())
+        {
+            routing->RemoveRoute(route - 1);
+        }
+    }
+    routing->SetDefaultRoute(GetUeDefaultGatewayAddress(), interface);
 }
 
 void
@@ -488,11 +606,19 @@ NrNoBackhaulEpcHelper::SetupRemoteHost(std::optional<std::string> dataRate,
     // Setup IPv4 addresses and routing from remoteHost to the UEs through PGW
     Ipv4AddressHelper ipv4h;
     Ipv4StaticRoutingHelper ipv4RoutingHelper;
-    ipv4h.SetBase("1.0.0.0", "255.0.0.0");
+    // 1.0.0.0/8 for the first core network, 1.<index>.0.0/16 for the others
+    if (GetCoreIndex() == 0)
+    {
+        ipv4h.SetBase("1.0.0.0", "255.0.0.0");
+    }
+    else
+    {
+        ipv4h.SetBase(GetCoreSubnet(1), "255.255.0.0");
+    }
     Ipv4InterfaceContainer internetIpIfaces = ipv4h.Assign(internetDevices);
     Ptr<Ipv4StaticRouting> remoteHostStaticRouting4 =
         ipv4RoutingHelper.GetStaticRouting(remoteHost->GetObject<Ipv4>());
-    remoteHostStaticRouting4->AddNetworkRouteTo(Ipv4Address("7.0.0.0"), Ipv4Mask("255.0.0.0"), 1);
+    remoteHostStaticRouting4->AddNetworkRouteTo(m_ueIpv4Network, m_ueIpv4Mask, 1);
     return std::make_pair(remoteHost, internetIpIfaces.GetAddress(1, 0));
 }
 
@@ -528,7 +654,7 @@ NrNoBackhaulEpcHelper::SetupRemoteHost6(std::optional<std::string> dataRate,
 
     // Setup IPv6 addresses and routing from remoteHost to the UEs through PGW
     Ipv6AddressHelper ipv6h;
-    ipv6h.SetBase(Ipv6Address("6001:db80::"), Ipv6Prefix(64));
+    ipv6h.SetBase(CoreIpv6Prefix("6001:db80::", GetCoreIndex()), Ipv6Prefix(64));
     Ipv6InterfaceContainer internetIpIfaces = ipv6h.Assign(internetDevices);
     internetIpIfaces.SetForwarding(0, true);
     internetIpIfaces.SetDefaultRouteInAllNodes(0);
@@ -536,8 +662,11 @@ NrNoBackhaulEpcHelper::SetupRemoteHost6(std::optional<std::string> dataRate,
     Ipv6StaticRoutingHelper ipv6RoutingHelper;
     Ptr<Ipv6StaticRouting> remoteHostStaticRouting =
         ipv6RoutingHelper.GetStaticRouting(remoteHost->GetObject<Ipv6>());
-    remoteHostStaticRouting
-        ->AddNetworkRouteTo("7777:f00d::", Ipv6Prefix(64), internetIpIfaces.GetAddress(0, 1), 1, 0);
+    remoteHostStaticRouting->AddNetworkRouteTo(CoreIpv6Prefix("7777:f00d::", GetCoreIndex()),
+                                               Ipv6Prefix(64),
+                                               internetIpIfaces.GetAddress(0, 1),
+                                               1,
+                                               0);
     return std::make_pair(remoteHost, internetIpIfaces.GetAddress(1, 1));
 }
 

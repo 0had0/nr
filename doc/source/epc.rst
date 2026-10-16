@@ -63,6 +63,46 @@ visited network, is built on these classes outside of the nr module (in a separa
 with the NGAP and NAS procedures run by a separate process). Since such core networks run in
 real time, the simulation must run in real time as well (``RealtimeSimulatorImpl``).
 
+Several core networks and roaming
+=================================
+
+A simulation can have several core networks, each one created by its own EPC helper (e.g.,
+``NrPointToPointEpcHelper``). ``NrHelper`` connects each gNB to the core network of the EPC
+helper set with ``NrHelper::SetEpcHelper()`` when the gNB is installed, and makes each UE a
+subscriber of the core network of the EPC helper set when the UE is installed (its home
+network); the QoS flows of a UE are always activated in its home network. The core networks must
+have different UE networks (``NrNoBackhaulEpcHelper::UeIpv4Network`` attribute); the addresses
+of their internal links are selected by their index in the simulation (the first core network
+uses 10.0.0.0, 11.0.0.0, 12.0.0.0, 13.0.0.0 and 14.0.0.0 for its S1-U, S1-AP, X2, S11 and S5
+links, the second one 10.1.0.0, 11.1.0.0, and so on), as are the networks of their remote hosts
+(1.0.0.0/8 for the first one, 1.1.0.0/16 for the second one, and so on) and their IPv6
+prefixes.
+
+``NrNoBackhaulEpcHelper::AddRoamingPartner()`` makes two core networks roaming partners, with
+local breakout:
+
+* when a UE that is not a subscriber of its network attaches, the MME asks its roaming partners
+  for the subscription of the UE (Update Location, as on S6a, with direct calls between the MME
+  applications): the home network of the UE provides its QoS flows;
+* the home network tracks the network that serves each of its subscribers, and asks the network
+  that served the UE before to delete its session (Cancel Location), which the MME of that
+  network does with a GTP-C Delete Session procedure (S11/S5);
+* the UE gets an IPv4 address of the network that serves it (the address of a subscriber in its
+  home network is restored when it comes back), with its default route through the PGW of that
+  network.
+
+The ``Attach`` and ``CancelLocation`` trace sources of ``NrEpcMmeApplication`` report the
+attachments of the UEs (roaming or not) and the deletions of their sessions. There is no
+handover between core networks: a UE moves to another network as it leaves the coverage of its
+network, with a radio link failure followed by the selection of a cell of the other network,
+where it attaches. The test suite ``nr-core-roaming`` moves a UE from its home network to a
+visited network and back.
+
+The roaming model has the following limitations: there is no home-routed roaming (S8); the
+subscription data is made of the QoS flows of the UE only (no authentication); the gNB that the
+UE left is not asked to release the UE context (there is no S1-AP UE Context Release Command);
+only IPv4 addresses are assigned in the visited networks.
+
 QoS configuration
 =================
 
@@ -377,7 +417,9 @@ Connection release and teardown
 :numref:`fig-epc-release` shows a full connection release. The RRC Connection Release moves the UE NAS
 to ``OFF``; the gNB then sends an S1-AP E-RAB Release Indication per active flow, which drives the
 GTP-C Delete Flow chain (S11/S5). The local UE-context removal at the gNB (RRC/MAC/PHY state and the
-S1-U TEIDs) runs in the same call stack, in parallel with the GTP-C deletion.
+S1-U TEIDs) runs in the same call stack, in parallel with the GTP-C deletion. When another core network
+serves the UE (roaming, see above), the MME deletes the whole session of the UE with the GTP-C Delete
+Session procedure (S11/S5), which removes its flows from the SGW and the PGW.
 
 .. _fig-epc-release:
 

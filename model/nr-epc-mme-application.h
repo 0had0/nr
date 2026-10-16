@@ -14,8 +14,11 @@
 #include "ns3/application.h"
 #include "ns3/nr-export.h"
 #include "ns3/socket.h"
+#include "ns3/traced-callback.h"
 
+#include <list>
 #include <map>
+#include <optional>
 
 namespace ns3
 {
@@ -33,6 +36,10 @@ namespace ns3
  *  - QoS flow management functions including dedicated flow establishment
  *  - NAS signalling
  *  - Tunnel Management messages
+ *  - Roaming with local breakout: a UE that is not a subscriber of the network of the MME is
+ *    attached if a roaming partner is its home network, which provides its subscription
+ *    (Update Location, as on S6a), and releases its session in the network that served it
+ *    before (Cancel Location)
  *
  * Others functions enumerated in section 4.4.2 of 3GPP TS 23.401 are not supported.
  */
@@ -98,6 +105,66 @@ class NR_EXPORT NrEpcMmeApplication : public Application
      * @returns QoS flow ID
      */
     uint8_t AddFlow(uint64_t imsi, Ptr<NrQosRule> rule, NrQosFlow flow);
+
+    /**
+     * Hold info on an QoS flow to be activated
+     */
+    struct NR_EXPORT FlowInfo
+    {
+        Ptr<NrQosRule> rule; ///< QoS rule
+        NrQosFlow flow;      ///< QoS flow (QOS characteristics)
+        uint8_t qfi;         ///< QoS flow ID
+    };
+
+    /**
+     * Add a roaming partner: the MME of another network, which is asked for the subscription of
+     * the UEs that are not subscribers of the network of this MME.
+     *
+     * @param partner the MME of the other network
+     */
+    void AddRoamingPartner(Ptr<NrEpcMmeApplication> partner);
+
+    /**
+     * Update Location (as on S6a): another MME serves a UE, which releases its session in the
+     * network that served it before.
+     *
+     * @param imsi the IMSI of the UE
+     * @param mme the MME that serves the UE
+     * @return the flows of the subscription of the UE, if it is a subscriber of the network of
+     * this MME
+     */
+    std::optional<std::list<FlowInfo>> UpdateLocation(uint64_t imsi, NrEpcMmeApplication* mme);
+
+    /**
+     * Cancel Location (as on S6a): the UE is served by another MME, so its session is deleted.
+     *
+     * @param imsi the IMSI of the UE
+     */
+    void CancelLocation(uint64_t imsi);
+
+    /**
+     * Set the callback invoked when a UE attaches, before its session is created, so that the
+     * core network sets the address of the UE.
+     *
+     * @param cb the callback, with the IMSI of the UE
+     */
+    void SetUeAttachCallback(Callback<void, uint64_t> cb);
+
+    /**
+     * TracedCallback signature for the attachment of a UE.
+     *
+     * @param [in] imsi the IMSI of the UE
+     * @param [in] cellId the cell ID of the gNB
+     * @param [in] roaming whether the UE is not a subscriber of the network of the MME
+     */
+    typedef void (*AttachTracedCallback)(uint64_t imsi, uint16_t cellId, bool roaming);
+
+    /**
+     * TracedCallback signature for an event about a UE.
+     *
+     * @param [in] imsi the IMSI of the UE
+     */
+    typedef void (*ImsiTracedCallback)(uint64_t imsi);
 
   private:
     // S1-AP SAP MME forwarded methods
@@ -175,14 +242,11 @@ class NR_EXPORT NrEpcMmeApplication : public Application
     void DoRecvDeleteFlowRequest(NrGtpcHeader& header, Ptr<Packet> packet);
 
     /**
-     * Hold info on an QoS flow to be activated
+     * Process GTP-C Delete Session Response message
+     * @param header the GTP-C header
+     * @param packet the packet containing the message
      */
-    struct NR_EXPORT FlowInfo
-    {
-        Ptr<NrQosRule> rule; ///< QoS rule
-        NrQosFlow flow;      ///< QoS flow (QOS characteristics)
-        uint8_t qfi;         ///< QoS flow ID
-    };
+    void DoRecvDeleteSessionResponse(NrGtpcHeader& header, Ptr<Packet> packet);
 
     /**
      * Hold info on a UE
@@ -195,6 +259,10 @@ class NR_EXPORT NrEpcMmeApplication : public Application
         uint16_t cellId;                        ///< cell ID
         uint16_t flowCounter;                   ///< flow counter
         std::list<FlowInfo> flowsToBeActivated; ///< list of flows to be activated
+        /// the MME of the home network of a roaming UE, nullptr for a subscriber
+        NrEpcMmeApplication* home{nullptr};
+        /// the MME that serves a subscriber, nullptr if none
+        NrEpcMmeApplication* servingMme{nullptr};
     };
 
     /**
@@ -230,6 +298,14 @@ class NR_EXPORT NrEpcMmeApplication : public Application
     Ipv4Address m_mmeS11Addr; ///< IPv4 address of the MME S11 interface
     Ipv4Address m_sgwS11Addr; ///< IPv4 address of the SGW S11 interface
     uint16_t m_gtpcUdpPort;   ///< UDP port for GTP-C protocol. Fixed by the standard to port 2123
+
+    std::list<Ptr<NrEpcMmeApplication>> m_roamingPartners; ///< MMEs of the roaming partners
+    Callback<void, uint64_t> m_ueAttachCallback;           ///< callback on the attachment of a UE
+
+    /// Trace fired on the attachment of a UE
+    TracedCallback<uint64_t, uint16_t, bool> m_attachTrace;
+    /// Trace fired when the session of a UE is deleted, since another network serves it
+    TracedCallback<uint64_t> m_cancelLocationTrace;
 };
 
 } // namespace ns3

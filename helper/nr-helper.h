@@ -366,6 +366,10 @@ class NR_EXPORT NrHelper : public Object
      * and MAC and the Scheduler, with a saturation traffic model for
      * the RLC.
      *
+     * Several core networks can be used in a simulation: the gNBs are connected to the core
+     * network of the NrEpcHelper set when they are installed, and the UEs are subscribers of the
+     * core network of the NrEpcHelper set when they are installed (their home network).
+     *
      * @param NrEpcHelper a pointer to the NrEpcHelper to be used
      */
     void SetEpcHelper(Ptr<NrEpcHelper> NrEpcHelper);
@@ -1166,7 +1170,9 @@ class NR_EXPORT NrHelper : public Object
 
     uint16_t m_cellIdCounter{1}; //!< CellId Counter
 
-    Ptr<NrEpcHelper> m_nrEpcHelper{nullptr};                 //!< Ptr to the EPC helper (optional)
+    Ptr<NrEpcHelper> m_nrEpcHelper{nullptr}; //!< Ptr to the EPC helper (optional)
+    /// EPC helper of the home network of each UE device, set when the UE is installed
+    std::map<Ptr<NetDevice>, Ptr<NrEpcHelper>> m_ueEpcHelpers;
     Ptr<BeamformingHelperBase> m_beamformingHelper{nullptr}; //!< Ptr to the beamforming helper
 
     bool m_snrTest{false};

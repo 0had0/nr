@@ -49,6 +49,18 @@ class NR_EXPORT NrRanEpcHelper : public NrEpcHelper
 
   protected:
     /**
+     * @return the index of this core network among the core networks of the simulation (the
+     * smallest index not used by another one), which selects the address ranges of its links
+     */
+    uint32_t GetCoreIndex() const;
+
+    /**
+     * @param firstOctet the first octet of an IPv4 network used by the core networks
+     * @return the IPv4 network of this core network: firstOctet.index.0.0
+     */
+    Ipv4Address GetCoreSubnet(uint8_t firstOctet) const;
+
+    /**
      * @brief Connect a gNB to the core network, once its S1-U endpoint has been created.
      *
      * Implementations must connect the S1-AP SAPs of the gNB application to the core network
@@ -83,6 +95,8 @@ class NR_EXPORT NrRanEpcHelper : public NrEpcHelper
 
   private:
     static constexpr uint16_t GTPU_UDP_PORT{2152}; ///< UDP port of GTP-U, fixed by the standard
+
+    uint32_t m_coreIndex; ///< index of this core network among the core networks
 
     /**
      * helper to assign addresses to X2 NetDevices

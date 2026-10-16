@@ -639,6 +639,7 @@ NrHelper::InstallSingleUeDevice(
     if (m_nrEpcHelper != nullptr)
     {
         m_nrEpcHelper->AddUe(dev, dev->GetImsi());
+        m_ueEpcHelpers[dev] = m_nrEpcHelper;
     }
 
     rrc->InitializeSrb0();
@@ -1266,11 +1267,11 @@ NrHelper::DoAttachToGnb(const Ptr<NetDevice>& ueDevice, const Ptr<NetDevice>& gn
 
     if (m_nrEpcHelper)
     {
-        // activate default QoS flow
-        m_nrEpcHelper->ActivateQosFlow(ueDevice,
-                                       ueNetDev->GetImsi(),
-                                       NrQosRule::Default(),
-                                       NrQosFlow(NrQosFlow::NGBR_VIDEO_TCP_DEFAULT));
+        // activate default QoS flow, in the home network of the UE
+        m_ueEpcHelpers.at(ueDevice)->ActivateQosFlow(ueDevice,
+                                                     ueNetDev->GetImsi(),
+                                                     NrQosRule::Default(),
+                                                     NrQosFlow(NrQosFlow::NGBR_VIDEO_TCP_DEFAULT));
     }
 
     // tricks needed for the simplified LTE-only simulations
@@ -1308,7 +1309,7 @@ NrHelper::ActivateDedicatedQosFlow(Ptr<NetDevice> ueDevice, NrQosFlow flow, Ptr<
     NS_ASSERT_MSG(m_nrEpcHelper, "dedicated QoS flows cannot be set up when the EPC is not used");
 
     uint64_t imsi = ueDevice->GetObject<NrUeNetDevice>()->GetImsi();
-    uint8_t qosFlowId = m_nrEpcHelper->ActivateQosFlow(ueDevice, imsi, rule, flow);
+    uint8_t qosFlowId = m_ueEpcHelpers.at(ueDevice)->ActivateQosFlow(ueDevice, imsi, rule, flow);
     return qosFlowId;
 }
 

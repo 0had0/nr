@@ -7,6 +7,7 @@
 #include "ns3/boolean.h"
 #include "ns3/iana-ieee802-numbers.h"
 #include "ns3/internet-stack-helper.h"
+#include "ns3/ipv4-address-generator.h"
 #include "ns3/log.h"
 #include "ns3/nr-epc-gnb-application.h"
 #include "ns3/nr-epc-x2.h"
@@ -61,7 +62,33 @@ NrRanEpcHelper::GetTypeId()
 NrRanEpcHelper::NrRanEpcHelper()
 {
     NS_LOG_FUNCTION(this);
-    m_x2Ipv4AddressHelper.SetBase("12.0.0.0", "255.255.255.252");
+    // The smallest index not used by another core network of the simulation, so that a single
+    // core network uses the same addresses as before. The index is reserved with an address that
+    // is never assigned (the broadcast address of the last X2 subnet of the core network) in the
+    // address registry of the simulation.
+    for (m_coreIndex = 0;; m_coreIndex++)
+    {
+        NS_ABORT_MSG_IF(m_coreIndex > 255, "Too many core networks");
+        const Ipv4Address marker(GetCoreSubnet(12).Get() | 0xffff);
+        if (!Ipv4AddressGenerator::IsAddressAllocated(marker))
+        {
+            Ipv4AddressGenerator::AddAllocated(marker);
+            break;
+        }
+    }
+    m_x2Ipv4AddressHelper.SetBase(GetCoreSubnet(12), "255.255.255.252");
+}
+
+uint32_t
+NrRanEpcHelper::GetCoreIndex() const
+{
+    return m_coreIndex;
+}
+
+Ipv4Address
+NrRanEpcHelper::GetCoreSubnet(uint8_t firstOctet) const
+{
+    return Ipv4Address(static_cast<uint32_t>(firstOctet) << 24 | m_coreIndex << 16);
 }
 
 void

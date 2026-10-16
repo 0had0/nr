@@ -36,15 +36,29 @@ NrEpcMmeApplication::DoDispose()
 {
     NS_LOG_FUNCTION(this);
     delete m_s1apSapMme;
+    // the roaming partners refer to each other
+    m_roamingPartners.clear();
+    m_ueAttachCallback = MakeNullCallback<void, uint64_t>();
+    Application::DoDispose();
 }
 
 TypeId
 NrEpcMmeApplication::GetTypeId()
 {
-    static TypeId tid = TypeId("ns3::NrEpcMmeApplication")
-                            .SetParent<Object>()
-                            .SetGroupName("Nr")
-                            .AddConstructor<NrEpcMmeApplication>();
+    static TypeId tid =
+        TypeId("ns3::NrEpcMmeApplication")
+            .SetParent<Object>()
+            .SetGroupName("Nr")
+            .AddConstructor<NrEpcMmeApplication>()
+            .AddTraceSource("Attach",
+                            "A UE attaches through a gNB of the network of the MME",
+                            MakeTraceSourceAccessor(&NrEpcMmeApplication::m_attachTrace),
+                            "ns3::NrEpcMmeApplication::AttachTracedCallback")
+            .AddTraceSource("CancelLocation",
+                            "The session of a UE is deleted, since another network "
+                            "serves it",
+                            MakeTraceSourceAccessor(&NrEpcMmeApplication::m_cancelLocationTrace),
+                            "ns3::NrEpcMmeApplication::ImsiTracedCallback");
     return tid;
 }
 
@@ -113,6 +127,60 @@ NrEpcMmeApplication::AddFlow(uint64_t imsi, Ptr<NrQosRule> rule, NrQosFlow flow)
     return flowInfo.qfi;
 }
 
+void
+NrEpcMmeApplication::AddRoamingPartner(Ptr<NrEpcMmeApplication> partner)
+{
+    NS_LOG_FUNCTION(this << partner);
+    NS_ASSERT_MSG(partner != this, "An MME is not its own roaming partner");
+    m_roamingPartners.push_back(partner);
+}
+
+void
+NrEpcMmeApplication::SetUeAttachCallback(Callback<void, uint64_t> cb)
+{
+    m_ueAttachCallback = cb;
+}
+
+std::optional<std::list<NrEpcMmeApplication::FlowInfo>>
+NrEpcMmeApplication::UpdateLocation(uint64_t imsi, NrEpcMmeApplication* mme)
+{
+    NS_LOG_FUNCTION(this << imsi << mme);
+    auto it = m_ueInfoMap.find(imsi);
+    if (it == m_ueInfoMap.end() || it->second->home)
+    {
+        // not a subscriber of this network
+        return std::nullopt;
+    }
+    auto& ueInfo = it->second;
+    if (ueInfo->servingMme && ueInfo->servingMme != mme)
+    {
+        ueInfo->servingMme->CancelLocation(imsi);
+    }
+    ueInfo->servingMme = mme;
+    return ueInfo->flowsToBeActivated;
+}
+
+void
+NrEpcMmeApplication::CancelLocation(uint64_t imsi)
+{
+    NS_LOG_FUNCTION(this << imsi);
+    auto it = m_ueInfoMap.find(imsi);
+    if (it == m_ueInfoMap.end() || it->second->cellId == 0)
+    {
+        return;
+    }
+    NS_LOG_INFO("IMSI " << imsi << " is served by another network: its session is deleted");
+    it->second->cellId = 0;
+    m_cancelLocationTrace(imsi);
+    NrGtpcDeleteSessionRequestMessage msg;
+    msg.SetTeid(imsi);
+    msg.ComputeMessageLength();
+    Ptr<Packet> packet = Create<Packet>();
+    packet->AddHeader(msg);
+    NS_LOG_DEBUG("Send DeleteSessionRequest to SGW " << m_sgwS11Addr);
+    m_s11Socket->SendTo(packet, 0, InetSocketAddress(m_sgwS11Addr, m_gtpcUdpPort));
+}
+
 // S1-AP SAP MME forwarded methods
 
 void
@@ -123,8 +191,51 @@ NrEpcMmeApplication::DoInitialUeMessage(uint64_t mmeUeS1Id,
 {
     NS_LOG_FUNCTION(this << mmeUeS1Id << gnbUeS1Id << imsi << gci);
     auto it = m_ueInfoMap.find(imsi);
-    NS_ASSERT_MSG(it != m_ueInfoMap.end(), "could not find any UE with IMSI " << imsi);
+    if (it == m_ueInfoMap.end() || it->second->home)
+    {
+        // a UE of another network: its home network, if a roaming partner, provides its
+        // subscription
+        std::optional<std::list<FlowInfo>> flows;
+        NrEpcMmeApplication* home = nullptr;
+        for (const auto& partner : m_roamingPartners)
+        {
+            flows = partner->UpdateLocation(imsi, this);
+            if (flows)
+            {
+                home = PeekPointer(partner);
+                break;
+            }
+        }
+        if (!flows)
+        {
+            NS_LOG_WARN("IMSI " << imsi << " is not a subscriber of this network or of a partner");
+            return;
+        }
+        if (it == m_ueInfoMap.end())
+        {
+            AddUe(imsi);
+            it = m_ueInfoMap.find(imsi);
+        }
+        it->second->home = home;
+        it->second->flowsToBeActivated = *flows;
+        NS_LOG_INFO("IMSI " << imsi << " attaches as a roaming UE");
+    }
+    else
+    {
+        // a subscriber of this network, which releases its session in the previous network
+        auto& ueInfo = it->second;
+        if (ueInfo->servingMme && ueInfo->servingMme != this)
+        {
+            ueInfo->servingMme->CancelLocation(imsi);
+        }
+        ueInfo->servingMme = this;
+    }
     it->second->cellId = gci;
+    if (!m_ueAttachCallback.IsNull())
+    {
+        m_ueAttachCallback(imsi);
+    }
+    m_attachTrace(imsi, gci, it->second->home != nullptr);
 
     NrGtpcCreateSessionRequestMessage msg;
     msg.SetImsi(imsi);
@@ -282,6 +393,10 @@ NrEpcMmeApplication::RecvFromS11Socket(Ptr<Socket> socket)
         DoRecvDeleteFlowRequest(header, packet);
         break;
 
+    case NrGtpcHeader::DeleteSessionResponse:
+        DoRecvDeleteSessionResponse(header, packet);
+        break;
+
     default:
         NS_FATAL_ERROR("GTP-C message not supported");
         break;
@@ -393,6 +508,15 @@ NrEpcMmeApplication::DoRecvDeleteFlowRequest(NrGtpcHeader& header, Ptr<Packet> p
     packetOut->AddHeader(msgOut);
     NS_LOG_DEBUG("Send DeleteFlowResponse to SGW " << m_sgwS11Addr);
     m_s11Socket->SendTo(packetOut, 0, InetSocketAddress(m_sgwS11Addr, m_gtpcUdpPort));
+}
+
+void
+NrEpcMmeApplication::DoRecvDeleteSessionResponse(NrGtpcHeader& header, Ptr<Packet> packet)
+{
+    NS_LOG_FUNCTION(this << header);
+    NrGtpcDeleteSessionResponseMessage msg;
+    packet->RemoveHeader(msg);
+    NS_LOG_INFO("Session of IMSI " << header.GetTeid() << " deleted, cause " << +msg.GetCause());
 }
 
 } // namespace ns3

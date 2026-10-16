@@ -578,6 +578,7 @@ set(test_sources
     test/nr-test-stray-rrc-request.cc
     test/nr-test-mobility-state-ttt.cc
     test/nr-test-core-connector.cc
+    test/nr-test-core-roaming.cc
     # cmake-format: off
     # todo:
     # test/nr-test-primary-cell-change.cc         /  requires handover

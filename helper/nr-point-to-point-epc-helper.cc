@@ -38,8 +38,8 @@ NrPointToPointEpcHelper::NotifyConstructionCompleted()
     // since we use point-to-point links for the backhaul links,
     // we use a /30 subnet which can hold exactly two addresses
     // (remember that net broadcast and null address are not valid)
-    m_s1uIpv4AddressHelper.SetBase("10.0.0.0", "255.255.255.252");
-    m_s1apIpv4AddressHelper.SetBase("11.0.0.0", "255.255.255.252");
+    m_s1uIpv4AddressHelper.SetBase(GetCoreSubnet(10), "255.255.255.252");
+    m_s1apIpv4AddressHelper.SetBase(GetCoreSubnet(11), "255.255.255.252");
 }
 
 NrPointToPointEpcHelper::~NrPointToPointEpcHelper()
