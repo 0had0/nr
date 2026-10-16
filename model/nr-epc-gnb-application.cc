@@ -241,6 +241,15 @@ NrEpcGnbApplication::DoInitialContextSetupRequest(
 }
 
 void
+NrEpcGnbApplication::DoUeContextReleaseCommand(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id)
+{
+    NS_LOG_FUNCTION(this << mmeUeS1Id << gnbUeS1Id);
+    // the RRC releases the UE, which removes its tunnels with UeContextRelease()
+    m_s1SapUser->UeContextReleaseCommand(mmeUeS1Id, gnbUeS1Id);
+    m_s1apSapMme->UeContextReleaseComplete(mmeUeS1Id, gnbUeS1Id);
+}
+
+void
 NrEpcGnbApplication::DoPathSwitchRequestAcknowledge(
     uint64_t gnbUeS1Id,
     uint64_t mmeUeS1Id,

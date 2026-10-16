@@ -53,7 +53,7 @@ New user-visible features
   can roam between them (``NrNoBackhaulEpcHelper::AddRoamingPartner()``): a
   core network attaches the subscribers of its roaming partners with their QoS
   flows from their home network, and the network that served the UE before
-  deletes its session. With local breakout, the UE gets an address of the
+  releases it in its gNB (S1-AP UE Context Release) and deletes its session. With local breakout, the UE gets an address of the
   visited network; with home-routed roaming, its session goes through an S8
   link to the PGW of its home network, and it keeps its home address. The UEs
   move between the networks through radio link failures and cell selection.

@@ -135,6 +135,15 @@ class NR_EXPORT NrEpcGnbS1SapUser
      * @param params Parameters
      */
     virtual void PathSwitchRequestAcknowledge(PathSwitchRequestAcknowledgeParameters params) = 0;
+
+    /**
+     * Release the context of a UE, as requested by the core network (UE Context Release
+     * Command), if the RNTI still identifies that UE: the RRC connection of the UE is released.
+     *
+     * @param imsi the IMSI of the UE
+     * @param rnti the RNTI of the UE
+     */
+    virtual void UeContextReleaseCommand(uint64_t imsi, uint16_t rnti) = 0;
 };
 
 /**
@@ -224,6 +233,7 @@ class NrMemberEpcGnbS1SapUser : public NrEpcGnbS1SapUser
     void InitialContextSetupRequest(InitialContextSetupRequestParameters params) override;
     void DataRadioBearerSetupRequest(DataRadioBearerSetupRequestParameters params) override;
     void PathSwitchRequestAcknowledge(PathSwitchRequestAcknowledgeParameters params) override;
+    void UeContextReleaseCommand(uint64_t imsi, uint16_t rnti) override;
 
   private:
     C* m_owner; ///< owner class
@@ -256,6 +266,13 @@ NrMemberEpcGnbS1SapUser<C>::PathSwitchRequestAcknowledge(
     PathSwitchRequestAcknowledgeParameters params)
 {
     m_owner->DoPathSwitchRequestAcknowledge(params);
+}
+
+template <class C>
+void
+NrMemberEpcGnbS1SapUser<C>::UeContextReleaseCommand(uint64_t imsi, uint16_t rnti)
+{
+    m_owner->DoUeContextReleaseCommand(imsi, rnti);
 }
 
 } // namespace ns3

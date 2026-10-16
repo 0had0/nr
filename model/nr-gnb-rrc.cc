@@ -3242,6 +3242,20 @@ NrGnbRrc::DoDataRadioBearerSetupRequest(
 }
 
 void
+NrGnbRrc::DoUeContextReleaseCommand(uint64_t imsi, uint16_t rnti)
+{
+    NS_LOG_FUNCTION(this << imsi << rnti);
+    // the RNTI may have been released, and possibly assigned to another UE, since
+    if (!HasUeManager(rnti) || GetUeManager(rnti)->GetImsi() != imsi)
+    {
+        NS_LOG_INFO("No context of IMSI " << imsi << " with RNTI " << rnti << " to release");
+        return;
+    }
+    NS_LOG_INFO("Releasing the context of IMSI " << imsi << " with RNTI " << rnti);
+    GetUeManager(rnti)->SendRrcConnectionRelease();
+}
+
+void
 NrGnbRrc::DoPathSwitchRequestAcknowledge(
     NrEpcGnbS1SapUser::PathSwitchRequestAcknowledgeParameters params)
 {

@@ -212,6 +212,14 @@ class NR_EXPORT NrEpcGnbApplication : public Application
         std::list<NrEpcS1apSapGnb::ErabSwitchedInUplinkItem> erabToBeSwitchedInUplinkList);
 
     /**
+     * UE Context Release Command: release the context of the UE, and answer with a UE Context
+     * Release Complete
+     * @param mmeUeS1Id the MME UE S1 ID (the IMSI)
+     * @param gnbUeS1Id the gNB UE S1 ID (the RNTI)
+     */
+    void DoUeContextReleaseCommand(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id);
+
+    /**
      * @brief This function accepts bearer id corresponding to a particular UE and schedules
      * indication of bearer release towards MME
      * @param imsi maps to mmeUeS1Id

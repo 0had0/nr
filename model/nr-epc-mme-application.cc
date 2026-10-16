@@ -170,6 +170,13 @@ NrEpcMmeApplication::CancelLocation(uint64_t imsi)
         return;
     }
     NS_LOG_INFO("IMSI " << imsi << " is served by another network: its session is deleted");
+    // the gNB releases the UE context (S1-AP UE Context Release Command)
+    auto gnbIt = m_gnbInfoMap.find(it->second->cellId);
+    if (gnbIt != m_gnbInfoMap.end())
+    {
+        gnbIt->second->s1apSapGnb->UeContextReleaseCommand(it->second->mmeUeS1Id,
+                                                           it->second->gnbUeS1Id);
+    }
     it->second->cellId = 0;
     m_cancelLocationTrace(imsi);
     NrGtpcDeleteSessionRequestMessage msg;
@@ -231,6 +238,7 @@ NrEpcMmeApplication::DoInitialUeMessage(uint64_t mmeUeS1Id,
         ueInfo->servingMme = this;
     }
     it->second->cellId = gci;
+    it->second->gnbUeS1Id = gnbUeS1Id;
     // the PGW of the network of the MME, or of the home network with home-routed roaming
     Ipv4Address pgwAddress;
     if (!m_ueAttachCallback.IsNull())
@@ -511,6 +519,13 @@ NrEpcMmeApplication::DoRecvDeleteFlowRequest(NrGtpcHeader& header, Ptr<Packet> p
     packetOut->AddHeader(msgOut);
     NS_LOG_DEBUG("Send DeleteFlowResponse to SGW " << m_sgwS11Addr);
     m_s11Socket->SendTo(packetOut, 0, InetSocketAddress(m_sgwS11Addr, m_gtpcUdpPort));
+}
+
+void
+NrEpcMmeApplication::DoUeContextReleaseComplete(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id)
+{
+    NS_LOG_FUNCTION(this << mmeUeS1Id << gnbUeS1Id);
+    NS_LOG_INFO("UE context of IMSI " << mmeUeS1Id << " released by its gNB");
 }
 
 void

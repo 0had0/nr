@@ -252,6 +252,102 @@ NrCoreRoamingTestCase::DoRun()
 
 /**
  * @ingroup test
+ * @brief Release of the context of a UE at its gNB, when another network serves it (S1-AP UE
+ * Context Release Command): a command for another UE with the same RNTI is ignored, and the
+ * Cancel Location of the UE releases its RRC connection.
+ */
+class NrUeContextReleaseTestCase : public TestCase
+{
+  public:
+    NrUeContextReleaseTestCase()
+        : TestCase("Release of the UE context at the gNB")
+    {
+    }
+
+  private:
+    void DoRun() override;
+
+    /**
+     * Record the release of a UE context at the gNB.
+     * @param context the context of the trace
+     * @param imsi the IMSI of the UE
+     * @param cellId the cell ID
+     * @param rnti the RNTI of the UE
+     */
+    void Release(std::string context, uint64_t imsi, uint16_t cellId, uint16_t rnti)
+    {
+        m_releases.push_back(Simulator::Now());
+    }
+
+    std::vector<Time> m_releases; ///< times of the releases of the UE context
+};
+
+void
+NrUeContextReleaseTestCase::DoRun()
+{
+    RngSeedManager::SetSeed(1);
+    RngSeedManager::SetRun(1);
+    Config::SetDefault("ns3::NrHelper::UseIdealRrc", BooleanValue(true));
+
+    auto epcHelper = CreateObject<NrPointToPointEpcHelper>();
+    NodeContainer gnbNodes(1);
+    NodeContainer ueNodes(1);
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    auto positions = CreateObject<ListPositionAllocator>();
+    positions->Add(Vector(0, 0, 10));
+    positions->Add(Vector(10, 0, 1.5));
+    mobility.SetPositionAllocator(positions);
+    mobility.Install(gnbNodes);
+    mobility.Install(ueNodes);
+
+    auto nrHelper = CreateObject<NrHelper>();
+    nrHelper->SetEpcHelper(epcHelper);
+    auto bandwidthParts = nrHelper->CreateBandwidthParts({{1.93e9, 10e6, 1}}, "UMa", "LOS");
+    auto gnbDevices = nrHelper->InstallGnbDevice(gnbNodes, bandwidthParts.second);
+    auto ueDevices = nrHelper->InstallUeDevice(ueNodes, bandwidthParts.second);
+    InternetStackHelper internet;
+    internet.Install(ueNodes);
+    epcHelper->AssignUeIpv4Address(ueDevices);
+    nrHelper->AttachToGnb(ueDevices.Get(0), gnbDevices.Get(0));
+    Config::Connect("/NodeList/*/DeviceList/*/NrGnbRrc/NotifyConnectionRelease",
+                    MakeCallback(&NrUeContextReleaseTestCase::Release, this));
+
+    auto ue = DynamicCast<NrUeNetDevice>(ueDevices.Get(0));
+    auto gnbApp = gnbNodes.Get(0)->GetApplication(0)->GetObject<NrEpcGnbApplication>();
+    const uint64_t imsi = ue->GetImsi();
+    // the same RNTI, but another UE: ignored
+    Simulator::Schedule(MilliSeconds(1500), [ue, gnbApp, imsi]() {
+        gnbApp->GetS1apSapGnb()->UeContextReleaseCommand(imsi + 100, ue->GetRrc()->GetRnti());
+    });
+    // another network serves the UE
+    Simulator::Schedule(Seconds(2), [epcHelper, imsi]() {
+        epcHelper->GetMmeApplication()->CancelLocation(imsi);
+    });
+    NrUeRrc::State stateBefore{};
+    NrUeRrc::State stateAfter{};
+    Simulator::Schedule(MilliSeconds(1900),
+                        [ue, &stateBefore]() { stateBefore = ue->GetRrc()->GetState(); });
+    Simulator::Schedule(MilliSeconds(2100),
+                        [ue, &stateAfter]() { stateAfter = ue->GetRrc()->GetState(); });
+    Simulator::Stop(Seconds(3));
+    Simulator::Run();
+
+    NS_TEST_EXPECT_MSG_EQ(stateBefore,
+                          NrUeRrc::CONNECTED_NORMALLY,
+                          "UE not connected before the release");
+    NS_TEST_EXPECT_MSG_EQ(m_releases.size(), 1, "Wrong number of releases of the UE context");
+    NS_TEST_EXPECT_MSG_EQ((m_releases.empty() ? Time() : m_releases[0]),
+                          Seconds(2),
+                          "UE context not released on Cancel Location");
+    NS_TEST_EXPECT_MSG_NE(stateAfter,
+                          NrUeRrc::CONNECTED_NORMALLY,
+                          "RRC connection of the UE not released");
+    Simulator::Destroy();
+}
+
+/**
+ * @ingroup test
  * @brief Test suite for the roaming between core networks.
  */
 class NrCoreRoamingTestSuite : public TestSuite
@@ -262,6 +358,7 @@ class NrCoreRoamingTestSuite : public TestSuite
     {
         AddTestCase(new NrCoreRoamingTestCase(false), Duration::QUICK);
         AddTestCase(new NrCoreRoamingTestCase(true), Duration::QUICK);
+        AddTestCase(new NrUeContextReleaseTestCase, Duration::QUICK);
     }
 };
 

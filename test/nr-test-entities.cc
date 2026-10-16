@@ -730,4 +730,9 @@ NrEpcTestRrc::DoPathSwitchRequestAcknowledge(
 {
 }
 
+void
+NrEpcTestRrc::DoUeContextReleaseCommand(uint64_t imsi, uint16_t rnti)
+{
+}
+
 } // namespace ns3

@@ -86,7 +86,8 @@ local breakout or home-routed roaming:
   applications): the home network of the UE provides its QoS flows;
 * the home network tracks the network that serves each of its subscribers, and asks the network
   that served the UE before to delete its session (Cancel Location), which the MME of that
-  network does with a GTP-C Delete Session procedure (S11/S5);
+  network does with an S1-AP UE Context Release Command to the gNB that served the UE, which
+  releases its RRC connection if it still has it, and a GTP-C Delete Session procedure (S11/S5);
 * with local breakout, the session of a roaming UE is in the PGW of the visited network: the
   UE gets an IPv4 address of that network (the address of a subscriber in its home network is
   restored when it comes back), with its default route through the PGW of that network;
@@ -106,9 +107,8 @@ where it attaches. The test suite ``nr-core-roaming`` moves a UE from its home n
 visited network and back, with local breakout and home-routed roaming.
 
 The roaming model has the following limitations: the subscription data is made of the QoS
-flows of the UE only (no authentication); the gNB that the
-UE left is not asked to release the UE context (there is no S1-AP UE Context Release Command);
-only IPv4 addresses are assigned in the visited networks.
+flows of the UE only (no authentication); only IPv4 addresses are assigned in the visited
+networks.
 
 QoS configuration
 =================
@@ -425,8 +425,9 @@ Connection release and teardown
 to ``OFF``; the gNB then sends an S1-AP E-RAB Release Indication per active flow, which drives the
 GTP-C Delete Flow chain (S11/S5). The local UE-context removal at the gNB (RRC/MAC/PHY state and the
 S1-U TEIDs) runs in the same call stack, in parallel with the GTP-C deletion. When another core network
-serves the UE (roaming, see above), the MME deletes the whole session of the UE with the GTP-C Delete
-Session procedure (S11/S5), which removes its flows from the SGW and the PGW.
+serves the UE (roaming, see above), the MME asks the gNB to release the UE context (S1-AP UE Context
+Release Command and Complete), and deletes the whole session of the UE with the GTP-C Delete Session
+procedure (S11/S5), which removes its flows from the SGW and the PGW.
 
 .. _fig-epc-release:
 

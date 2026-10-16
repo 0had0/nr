@@ -244,6 +244,13 @@ class NR_EXPORT NrEpcMmeApplication : public Application
     void DoRecvDeleteFlowRequest(NrGtpcHeader& header, Ptr<Packet> packet);
 
     /**
+     * Process the S1 UE Context Release Complete received from a gNB
+     * @param mmeUeS1Id the MME UE S1 ID
+     * @param gnbUeS1Id the gNB UE S1 ID
+     */
+    void DoUeContextReleaseComplete(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id);
+
+    /**
      * Process GTP-C Delete Session Response message
      * @param header the GTP-C header
      * @param packet the packet containing the message

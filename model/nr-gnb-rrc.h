@@ -1403,6 +1403,14 @@ class NR_EXPORT NrGnbRrc : public Object
      */
     void DoPathSwitchRequestAcknowledge(
         NrEpcGnbS1SapUser::PathSwitchRequestAcknowledgeParameters params);
+    /**
+     * Release the context of a UE, as requested by the core network, if the RNTI still
+     * identifies that UE: the RRC connection of the UE is released.
+     *
+     * @param imsi the IMSI of the UE
+     * @param rnti the RNTI of the UE
+     */
+    void DoUeContextReleaseCommand(uint64_t imsi, uint16_t rnti);
 
     // X2 SAP methods
 

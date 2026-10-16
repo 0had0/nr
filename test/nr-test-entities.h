@@ -457,6 +457,12 @@ class NrEpcTestRrc : public Object
      */
     void DoPathSwitchRequestAcknowledge(
         NrEpcGnbS1SapUser::PathSwitchRequestAcknowledgeParameters params);
+    /**
+     * UE context release command function
+     * @param imsi the IMSI of the UE
+     * @param rnti the RNTI of the UE
+     */
+    void DoUeContextReleaseCommand(uint64_t imsi, uint16_t rnti);
 
     NrEpcGnbS1SapProvider* m_s1SapProvider; ///< S1 SAP provider
     NrEpcGnbS1SapUser* m_s1SapUser;         ///< S1 SAP user

@@ -25,8 +25,14 @@ S1 Application Protocol, [TS36413]_). The service interface is ``NrEpcS1apSap``,
 (``NrEpcS1apSapGnb``) and an MME side (``NrEpcS1apSapMme``), with the following primitives:
 
 * MME side -- ``InitialUeMessage``, ``ErabReleaseIndication``, ``InitialContextSetupResponse``,
-  ``PathSwitchRequest``;
-* gNB side -- ``InitialContextSetupRequest``, ``PathSwitchRequestAcknowledge``.
+  ``PathSwitchRequest``, ``UeContextReleaseComplete``;
+* gNB side -- ``InitialContextSetupRequest``, ``PathSwitchRequestAcknowledge``,
+  ``UeContextReleaseCommand``.
+
+The MME sends a UE Context Release Command when another core network serves the UE (Cancel
+Location, see the :doc:`EPC <epc>` section): the gNB application asks the RRC to release the UE
+(``NrEpcGnbS1SapUser::UeContextReleaseCommand()``), which releases its RRC connection if the RNTI
+still identifies that UE, and answers with a UE Context Release Complete in any case.
 
 Internally the gNB RRC talks to the gNB application through a second SAP,
 ``NrEpcGnbS1SapProvider`` / ``NrEpcGnbS1SapUser``. The NR adaptation replaces the LTE bearer

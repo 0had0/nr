@@ -120,6 +120,14 @@ class NR_EXPORT NrEpcS1apSapMme : public NrEpcS1apSap
         uint64_t mmeUeS1Id,
         uint16_t gci,
         std::list<ErabSwitchedInDownlinkItem> erabToBeSwitchedInDownlinkList) = 0;
+
+    /**
+     * UE CONTEXT RELEASE COMPLETE message, see 3GPP TS 36.413 9.1.4.7
+     *
+     * @param mmeUeS1Id in practice, we use the IMSI
+     * @param gnbUeS1Id in practice, we use the RNTI
+     */
+    virtual void UeContextReleaseComplete(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id) = 0;
 };
 
 /**
@@ -176,6 +184,16 @@ class NR_EXPORT NrEpcS1apSapGnb : public NrEpcS1apSap
         uint64_t mmeUeS1Id,
         uint16_t cgi,
         std::list<ErabSwitchedInUplinkItem> erabToBeSwitchedInUplinkList) = 0;
+
+    /**
+     * UE CONTEXT RELEASE COMMAND message, see 3GPP TS 36.413 9.1.4.6: the gNB releases the UE
+     * context, and answers with a UE Context Release Complete, even if it has no such UE
+     * context any more.
+     *
+     * @param mmeUeS1Id in practice, we use the IMSI
+     * @param gnbUeS1Id in practice, we use the RNTI
+     */
+    virtual void UeContextReleaseCommand(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id) = 0;
 };
 
 /**
@@ -240,6 +258,12 @@ class NrMemberEpcS1apSapMme : public NrEpcS1apSapMme
         uint64_t mmeUeS1Id,
         uint16_t cgi,
         std::list<ErabSwitchedInDownlinkItem> erabToBeSwitchedInDownlinkList) override;
+    /**
+     * UE context release complete
+     * @param mmeUeS1Id in practice, we use the IMSI
+     * @param gnbUeS1Id in practice, we use the RNTI
+     */
+    void UeContextReleaseComplete(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id) override;
 
   private:
     C* m_owner; ///< owner class
@@ -291,6 +315,13 @@ NrMemberEpcS1apSapMme<C>::PathSwitchRequest(
     m_owner->DoPathSwitchRequest(gnbUeS1Id, mmeUeS1Id, cgi, erabToBeSwitchedInDownlinkList);
 }
 
+template <class C>
+void
+NrMemberEpcS1apSapMme<C>::UeContextReleaseComplete(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id)
+{
+    m_owner->DoUeContextReleaseComplete(mmeUeS1Id, gnbUeS1Id);
+}
+
 /**
  * Template for the implementation of the NrEpcS1apSapGnb as a member
  * of an owner class of type C to which all methods are forwarded
@@ -331,6 +362,12 @@ class NrMemberEpcS1apSapGnb : public NrEpcS1apSapGnb
         uint64_t mmeUeS1Id,
         uint16_t cgi,
         std::list<ErabSwitchedInUplinkItem> erabToBeSwitchedInUplinkList) override;
+    /**
+     * UE context release command
+     * @param mmeUeS1Id in practice, we use the IMSI
+     * @param gnbUeS1Id in practice, we use the RNTI
+     */
+    void UeContextReleaseCommand(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id) override;
 
   private:
     C* m_owner; ///< owner class
@@ -363,6 +400,13 @@ NrMemberEpcS1apSapGnb<C>::PathSwitchRequestAcknowledge(
                                             mmeUeS1Id,
                                             cgi,
                                             erabToBeSwitchedInUplinkList);
+}
+
+template <class C>
+void
+NrMemberEpcS1apSapGnb<C>::UeContextReleaseCommand(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id)
+{
+    m_owner->DoUeContextReleaseCommand(mmeUeS1Id, gnbUeS1Id);
 }
 
 } // namespace ns3

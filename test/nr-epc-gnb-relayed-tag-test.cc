@@ -51,6 +51,10 @@ class RelayedTagS1SapUser : public NrEpcGnbS1SapUser
     {
     }
 
+    void UeContextReleaseCommand(uint64_t imsi, uint16_t rnti) override
+    {
+    }
+
     uint16_t m_setupRnti{0}; ///< RNTI of the last bearer setup request
 };
 
@@ -89,6 +93,10 @@ class RelayedTagS1apSapMme : public NrEpcS1apSapMme
         uint64_t mmeUeS1Id,
         uint16_t gci,
         std::list<ErabSwitchedInDownlinkItem> erabToBeSwitchedInDownlinkList) override
+    {
+    }
+
+    void UeContextReleaseComplete(uint64_t mmeUeS1Id, uint16_t gnbUeS1Id) override
     {
     }
 };
