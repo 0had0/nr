@@ -454,6 +454,94 @@ NrMixedRoamingTestCase::DoRun()
 
 /**
  * @ingroup test
+ * @brief A subscriber served by a network outside of the simulation (e.g., an external 5G core
+ * network roaming with the home network through a SEPP): its session in the home network is
+ * deleted, and when it attaches again in the home network, the external network is asked to
+ * release it.
+ */
+class NrExternalServingNetworkTestCase : public TestCase
+{
+  public:
+    NrExternalServingNetworkTestCase()
+        : TestCase("Subscriber served by an external network")
+    {
+    }
+
+  private:
+    void DoRun() override;
+};
+
+void
+NrExternalServingNetworkTestCase::DoRun()
+{
+    RngSeedManager::SetSeed(1);
+    RngSeedManager::SetRun(1);
+    Config::SetDefault("ns3::NrHelper::UseIdealRrc", BooleanValue(true));
+
+    auto epcHelper = CreateObject<NrPointToPointEpcHelper>();
+    NodeContainer gnbNodes(1);
+    NodeContainer ueNodes(1);
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    auto positions = CreateObject<ListPositionAllocator>();
+    positions->Add(Vector(0, 0, 10));
+    positions->Add(Vector(10, 0, 1.5));
+    mobility.SetPositionAllocator(positions);
+    mobility.Install(gnbNodes);
+    mobility.Install(ueNodes);
+
+    auto nrHelper = CreateObject<NrHelper>();
+    nrHelper->SetEpcHelper(epcHelper);
+    auto bandwidthParts = nrHelper->CreateBandwidthParts({{1.93e9, 10e6, 1}}, "UMa", "LOS");
+    auto gnbDevices = nrHelper->InstallGnbDevice(gnbNodes, bandwidthParts.second);
+    auto ueDevices = nrHelper->InstallUeDevice(ueNodes, bandwidthParts.second);
+    InternetStackHelper internet;
+    internet.Install(ueNodes);
+    epcHelper->AssignUeIpv4Address(ueDevices);
+    nrHelper->AttachToGnb(ueDevices.Get(0), gnbDevices.Get(0));
+
+    auto mme = epcHelper->GetMmeApplication();
+    auto ue = DynamicCast<NrUeNetDevice>(ueDevices.Get(0));
+    auto gnb = DynamicCast<NrGnbNetDevice>(gnbDevices.Get(0));
+    const uint64_t imsi = ue->GetImsi();
+    std::vector<std::string> events;
+    mme->TraceConnectWithoutContext("CancelLocation", Callback<void, uint64_t>([&events](uint64_t) {
+                                        events.emplace_back("cancel");
+                                    }));
+    mme->TraceConnectWithoutContext(
+        "Attach",
+        Callback<void, uint64_t, uint16_t, bool>(
+            [&events](uint64_t, uint16_t, bool) { events.emplace_back("attach"); }));
+    mme->SetExternalCancelLocationCallback(
+        Callback<void, uint64_t>([&events](uint64_t) { events.emplace_back("external cancel"); }));
+    bool known = false;
+    // the external network serves the UE, which releases its session at home
+    Simulator::Schedule(Seconds(2),
+                        [mme, imsi, &known]() { known = mme->ExternalUpdateLocation(imsi); });
+    // the UE attaches at home again
+    Simulator::Schedule(MilliSeconds(2500), [ue, gnb]() {
+        ue->GetNas()->Connect(gnb->GetCellId(), gnb->GetBwpArfcn(0));
+    });
+    Simulator::Stop(Seconds(4));
+    Simulator::Run();
+
+    NS_TEST_EXPECT_MSG_EQ(known, true, "Subscriber not known");
+    NS_TEST_EXPECT_MSG_EQ(mme->ExternalUpdateLocation(imsi + 100), false, "Unknown UE accepted");
+    // the external network is released before the UE attaches at home again
+    const std::vector<std::string> expected{"attach", "cancel", "external cancel", "attach"};
+    NS_TEST_EXPECT_MSG_EQ(events.size(), expected.size(), "Wrong events");
+    for (size_t i = 0; i < std::min(events.size(), expected.size()); i++)
+    {
+        NS_TEST_EXPECT_MSG_EQ(events[i], expected[i], "Wrong event");
+    }
+    NS_TEST_EXPECT_MSG_EQ(ue->GetRrc()->GetState(),
+                          NrUeRrc::CONNECTED_NORMALLY,
+                          "UE not connected at home again");
+    Simulator::Destroy();
+}
+
+/**
+ * @ingroup test
  * @brief Release of the context of a UE at its gNB, when another network serves it (S1-AP UE
  * Context Release Command): a command for another UE with the same RNTI is ignored, and the
  * Cancel Location of the UE releases its RRC connection.
@@ -562,6 +650,7 @@ class NrCoreRoamingTestSuite : public TestSuite
         AddTestCase(new NrCoreRoamingTestCase(true), Duration::QUICK);
         AddTestCase(new NrMixedRoamingTestCase, Duration::QUICK);
         AddTestCase(new NrUeContextReleaseTestCase, Duration::QUICK);
+        AddTestCase(new NrExternalServingNetworkTestCase, Duration::QUICK);
     }
 };
 

@@ -143,6 +143,24 @@ class NR_EXPORT NrEpcMmeApplication : public Application
     void CancelLocation(uint64_t imsi);
 
     /**
+     * Update Location from a network outside of the simulation (e.g., an external 5G core
+     * network that roams with the network of this MME through a SEPP): it serves a subscriber,
+     * which releases its session in the network of the simulation that served it before.
+     *
+     * @param imsi the IMSI of the UE
+     * @return whether the UE is a subscriber of the network of this MME
+     */
+    bool ExternalUpdateLocation(uint64_t imsi);
+
+    /**
+     * Set the callback invoked when a network of the simulation serves a subscriber that was
+     * served by a network outside of the simulation, so that the latter releases it.
+     *
+     * @param cb the callback, with the IMSI of the UE
+     */
+    void SetExternalCancelLocationCallback(Callback<void, uint64_t> cb);
+
+    /**
      * Set the callback invoked when a UE attaches, before its session is created, so that the
      * core network sets the address of the UE and selects its PGW.
      *
@@ -272,6 +290,8 @@ class NR_EXPORT NrEpcMmeApplication : public Application
         NrEpcMmeApplication* home{nullptr};
         /// the MME that serves a subscriber, nullptr if none
         NrEpcMmeApplication* servingMme{nullptr};
+        /// whether a network outside of the simulation serves the subscriber
+        bool servingExternal{false};
     };
 
     /**
@@ -311,6 +331,17 @@ class NR_EXPORT NrEpcMmeApplication : public Application
     std::list<Ptr<NrEpcMmeApplication>> m_roamingPartners; ///< MMEs of the roaming partners
     /// callback on the attachment of a UE
     Callback<Ipv4Address, uint64_t, NrEpcMmeApplication*> m_ueAttachCallback;
+    /// callback on the Cancel Location of a network outside of the simulation
+    Callback<void, uint64_t> m_externalCancelLocationCallback;
+
+    /**
+     * A network of the simulation serves a subscriber: the network that served it before
+     * releases it.
+     *
+     * @param ueInfo the subscriber
+     * @param mme the MME of the network that serves it
+     */
+    void SetServingMme(Ptr<NrUeInfo> ueInfo, NrEpcMmeApplication* mme);
 
     /// Trace fired on the attachment of a UE
     TracedCallback<uint64_t, uint16_t, bool> m_attachTrace;

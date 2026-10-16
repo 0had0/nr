@@ -39,6 +39,7 @@ NrEpcMmeApplication::DoDispose()
     // the roaming partners refer to each other
     m_roamingPartners.clear();
     m_ueAttachCallback = MakeNullCallback<Ipv4Address, uint64_t, NrEpcMmeApplication*>();
+    m_externalCancelLocationCallback = MakeNullCallback<void, uint64_t>();
     Application::DoDispose();
 }
 
@@ -151,13 +152,52 @@ NrEpcMmeApplication::UpdateLocation(uint64_t imsi, NrEpcMmeApplication* mme)
         // not a subscriber of this network
         return std::nullopt;
     }
-    auto& ueInfo = it->second;
+    SetServingMme(it->second, mme);
+    return it->second->flowsToBeActivated;
+}
+
+void
+NrEpcMmeApplication::SetServingMme(Ptr<NrUeInfo> ueInfo, NrEpcMmeApplication* mme)
+{
     if (ueInfo->servingMme && ueInfo->servingMme != mme)
     {
-        ueInfo->servingMme->CancelLocation(imsi);
+        ueInfo->servingMme->CancelLocation(ueInfo->imsi);
+    }
+    if (ueInfo->servingExternal)
+    {
+        NS_LOG_INFO("IMSI " << ueInfo->imsi << " no longer served by an external network");
+        ueInfo->servingExternal = false;
+        if (!m_externalCancelLocationCallback.IsNull())
+        {
+            m_externalCancelLocationCallback(ueInfo->imsi);
+        }
     }
     ueInfo->servingMme = mme;
-    return ueInfo->flowsToBeActivated;
+}
+
+bool
+NrEpcMmeApplication::ExternalUpdateLocation(uint64_t imsi)
+{
+    NS_LOG_FUNCTION(this << imsi);
+    auto it = m_ueInfoMap.find(imsi);
+    if (it == m_ueInfoMap.end() || it->second->home)
+    {
+        return false;
+    }
+    NS_LOG_INFO("IMSI " << imsi << " served by an external network");
+    if (it->second->servingMme)
+    {
+        it->second->servingMme->CancelLocation(imsi);
+    }
+    it->second->servingMme = nullptr;
+    it->second->servingExternal = true;
+    return true;
+}
+
+void
+NrEpcMmeApplication::SetExternalCancelLocationCallback(Callback<void, uint64_t> cb)
+{
+    m_externalCancelLocationCallback = cb;
 }
 
 void
@@ -230,12 +270,7 @@ NrEpcMmeApplication::DoInitialUeMessage(uint64_t mmeUeS1Id,
     else
     {
         // a subscriber of this network, which releases its session in the previous network
-        auto& ueInfo = it->second;
-        if (ueInfo->servingMme && ueInfo->servingMme != this)
-        {
-            ueInfo->servingMme->CancelLocation(imsi);
-        }
-        ueInfo->servingMme = this;
+        SetServingMme(it->second, this);
     }
     it->second->cellId = gci;
     it->second->gnbUeS1Id = gnbUeS1Id;

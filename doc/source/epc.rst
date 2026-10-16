@@ -101,6 +101,14 @@ local breakout or home-routed roaming:
   messages of a session to the SGW that created it, and ignores the deletion of a session by an
   SGW that no longer has it.
 
+A network outside of the simulation can serve the subscribers of a core network of the
+simulation, e.g., an external 5G core network roaming with it through a SEPP:
+``NrEpcMmeApplication::ExternalUpdateLocation()`` notifies the home MME that such a network
+serves a subscriber, so that the network of the simulation that served it deletes its session,
+and the callback set with ``NrEpcMmeApplication::SetExternalCancelLocationCallback()`` is
+invoked when a network of the simulation serves the subscriber again, so that the external
+network releases it.
+
 The ``Attach`` and ``CancelLocation`` trace sources of ``NrEpcMmeApplication`` report the
 attachments of the UEs (roaming or not) and the deletions of their sessions. There is no
 handover between core networks: a UE moves to another network as it leaves the coverage of its
