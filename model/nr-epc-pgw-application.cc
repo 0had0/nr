@@ -67,6 +67,16 @@ NrEpcPgwApplication::NrUeInfo::RemoveFlow(uint8_t qfi)
     }
 }
 
+void
+NrEpcPgwApplication::NrUeInfo::RemoveFlows()
+{
+    NS_LOG_FUNCTION(this);
+    while (!m_teidByFlowIdMap.empty())
+    {
+        RemoveFlow(m_teidByFlowIdMap.begin()->first);
+    }
+}
+
 std::optional<uint32_t>
 NrEpcPgwApplication::NrUeInfo::Classify(Ptr<Packet> p, uint16_t protocolNumber)
 {
@@ -317,6 +327,10 @@ NrEpcPgwApplication::RecvFromS5cSocket(Ptr<Socket> socket)
         DoRecvDeleteFlowResponse(packet);
         break;
 
+    case NrGtpcHeader::DeleteSessionRequest:
+        DoRecvDeleteSessionRequest(packet);
+        break;
+
     default:
         NS_FATAL_ERROR("GTP-C message not supported");
         break;
@@ -524,6 +538,30 @@ NrEpcPgwApplication::AddSgw(Ipv4Address sgwS5Addr)
 }
 
 void
+NrEpcPgwApplication::DoRecvDeleteSessionRequest(Ptr<Packet> packet)
+{
+    NS_LOG_FUNCTION(this);
+
+    NrGtpcDeleteSessionRequestMessage msg;
+    packet->RemoveHeader(msg);
+    const uint64_t imsi = msg.GetTeid();
+    auto ueit = m_ueInfoByImsiMap.find(imsi);
+    NS_ASSERT_MSG(ueit != m_ueInfoByImsiMap.end(), "unknown IMSI " << imsi);
+    // the UE address stays reserved for the UE, should it attach again
+    NS_LOG_INFO("PGW removing the flows of IMSI " << imsi);
+    ueit->second->RemoveFlows();
+
+    NrGtpcDeleteSessionResponseMessage msgOut;
+    msgOut.SetCause(NrGtpcIes::REQUEST_ACCEPTED);
+    msgOut.SetTeid(imsi);
+    msgOut.ComputeMessageLength();
+    Ptr<Packet> packetOut = Create<Packet>();
+    packetOut->AddHeader(msgOut);
+    NS_LOG_DEBUG("Send DeleteSessionResponse to SGW " << m_sgwS5Addr);
+    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_sgwS5Addr, m_gtpcUdpPort));
+}
+
+void
 NrEpcPgwApplication::AddUe(uint64_t imsi)
 {
     NS_LOG_FUNCTION(this << imsi);
@@ -539,6 +577,20 @@ NrEpcPgwApplication::SetUeAddress(uint64_t imsi, Ipv4Address ueAddr)
     NS_ASSERT_MSG(ueit != m_ueInfoByImsiMap.end(), "unknown IMSI" << imsi);
     ueit->second->SetUeAddr(ueAddr);
     m_ueInfoByAddrMap[ueAddr] = ueit->second;
+}
+
+bool
+NrEpcPgwApplication::HasUe(uint64_t imsi) const
+{
+    return m_ueInfoByImsiMap.contains(imsi);
+}
+
+Ipv4Address
+NrEpcPgwApplication::GetUeAddress(uint64_t imsi) const
+{
+    auto ueit = m_ueInfoByImsiMap.find(imsi);
+    NS_ASSERT_MSG(ueit != m_ueInfoByImsiMap.end(), "unknown IMSI " << imsi);
+    return ueit->second->GetUeAddr();
 }
 
 void

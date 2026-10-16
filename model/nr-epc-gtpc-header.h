@@ -735,6 +735,65 @@ class NR_EXPORT NrGtpcDeleteFlowResponseMessage : public NrGtpcHeader, public Nr
     std::list<uint8_t> m_qosFlowIds; //!< Container of QoS Flow IDs
 };
 
+/**
+ * @ingroup nr
+ * GTP-C Delete Session Request Message, which deletes all the flows of the session of a UE. The
+ * UE is identified by the TEID of the header.
+ */
+class NR_EXPORT NrGtpcDeleteSessionRequestMessage : public NrGtpcHeader, public NrGtpcIes
+{
+  public:
+    NrGtpcDeleteSessionRequestMessage();
+    ~NrGtpcDeleteSessionRequestMessage() override;
+    /**
+     * @brief Get the type ID.
+     * @return the object TypeId
+     */
+    static TypeId GetTypeId();
+    TypeId GetInstanceTypeId() const override;
+    uint32_t GetSerializedSize() const override;
+    void Serialize(Buffer::Iterator start) const override;
+    uint32_t Deserialize(Buffer::Iterator start) override;
+    void Print(std::ostream& os) const override;
+    uint32_t GetMessageSize() const override;
+};
+
+/**
+ * @ingroup nr
+ * GTP-C Delete Session Response Message
+ */
+class NR_EXPORT NrGtpcDeleteSessionResponseMessage : public NrGtpcHeader, public NrGtpcIes
+{
+  public:
+    NrGtpcDeleteSessionResponseMessage();
+    ~NrGtpcDeleteSessionResponseMessage() override;
+    /**
+     * @brief Get the type ID.
+     * @return the object TypeId
+     */
+    static TypeId GetTypeId();
+    TypeId GetInstanceTypeId() const override;
+    uint32_t GetSerializedSize() const override;
+    void Serialize(Buffer::Iterator start) const override;
+    uint32_t Deserialize(Buffer::Iterator start) override;
+    void Print(std::ostream& os) const override;
+    uint32_t GetMessageSize() const override;
+
+    /**
+     * Get the Cause
+     * @return the Cause
+     */
+    Cause_t GetCause() const;
+    /**
+     * Set the Cause
+     * @param cause The cause
+     */
+    void SetCause(Cause_t cause);
+
+  private:
+    Cause_t m_cause; //!< Cause
+};
+
 } // namespace ns3
 
 #endif // NR_EPC_GTPC_HEADER_H

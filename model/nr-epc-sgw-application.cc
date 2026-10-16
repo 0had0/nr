@@ -111,6 +111,10 @@ NrEpcSgwApplication::RecvFromS11Socket(Ptr<Socket> socket)
         DoRecvDeleteFlowCommand(packet);
         break;
 
+    case NrGtpcHeader::DeleteSessionRequest:
+        DoRecvDeleteSessionRequest(packet);
+        break;
+
     case NrGtpcHeader::DeleteFlowResponse:
         DoRecvDeleteFlowResponse(packet);
         break;
@@ -158,6 +162,10 @@ NrEpcSgwApplication::RecvFromS5cSocket(Ptr<Socket> socket)
 
     case NrGtpcHeader::DeleteFlowRequest:
         DoRecvDeleteFlowRequest(packet);
+        break;
+
+    case NrGtpcHeader::DeleteSessionResponse:
+        DoRecvDeleteSessionResponse(packet);
         break;
 
     default:
@@ -258,6 +266,7 @@ NrEpcSgwApplication::DoRecvCreateSessionRequest(Ptr<Packet> packet)
         NS_LOG_DEBUG("  TEID " << teid);
         m_gnbByTeidMap[teid] = gnbAddr;
         m_qfiByTeidMap[teid] = flowContext.qfi;
+        m_teidsByImsi[imsi].push_back(teid);
 
         NrGtpcCreateSessionRequestMessage::FlowContextToBeCreated flowContextOut;
         flowContextOut.sgwS5uFteid.interfaceType = NrGtpcHeader::S5_SGW_GTPU;
@@ -378,6 +387,31 @@ NrEpcSgwApplication::DoRecvDeleteFlowResponse(Ptr<Packet> packet)
     m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_pgwAddr, m_gtpcUdpPort));
 }
 
+void
+NrEpcSgwApplication::DoRecvDeleteSessionRequest(Ptr<Packet> packet)
+{
+    NS_LOG_FUNCTION(this);
+
+    NrGtpcDeleteSessionRequestMessage msg;
+    packet->RemoveHeader(msg);
+    const uint64_t imsi = msg.GetTeid();
+    NS_LOG_DEBUG("IMSI " << imsi);
+    for (auto teid : m_teidsByImsi[imsi])
+    {
+        m_gnbByTeidMap.erase(teid);
+        m_qfiByTeidMap.erase(teid);
+    }
+    m_teidsByImsi.erase(imsi);
+
+    NrGtpcDeleteSessionRequestMessage msgOut;
+    msgOut.SetTeid(imsi);
+    msgOut.ComputeMessageLength();
+    Ptr<Packet> packetOut = Create<Packet>();
+    packetOut->AddHeader(msgOut);
+    NS_LOG_DEBUG("Send DeleteSessionRequest to PGW " << m_pgwAddr);
+    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_pgwAddr, m_gtpcUdpPort));
+}
+
 ////////////////////////////////////////////
 // Process messages received from the PGW
 ////////////////////////////////////////////
@@ -464,6 +498,24 @@ NrEpcSgwApplication::DoRecvDeleteFlowRequest(Ptr<Packet> packet)
     Ptr<Packet> packetOut = Create<Packet>();
     packetOut->AddHeader(msgOut);
     NS_LOG_DEBUG("Send DeleteFlowRequest to MME " << m_mmeS11Addr);
+    m_s11Socket->SendTo(packetOut, 0, InetSocketAddress(m_mmeS11Addr, m_gtpcUdpPort));
+}
+
+void
+NrEpcSgwApplication::DoRecvDeleteSessionResponse(Ptr<Packet> packet)
+{
+    NS_LOG_FUNCTION(this);
+
+    NrGtpcDeleteSessionResponseMessage msg;
+    packet->RemoveHeader(msg);
+
+    NrGtpcDeleteSessionResponseMessage msgOut;
+    msgOut.SetCause(msg.GetCause());
+    msgOut.SetTeid(msg.GetTeid());
+    msgOut.ComputeMessageLength();
+    Ptr<Packet> packetOut = Create<Packet>();
+    packetOut->AddHeader(msgOut);
+    NS_LOG_DEBUG("Send DeleteSessionResponse to MME " << m_mmeS11Addr);
     m_s11Socket->SendTo(packetOut, 0, InetSocketAddress(m_mmeS11Addr, m_gtpcUdpPort));
 }
 

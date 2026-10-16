@@ -14,6 +14,7 @@
 #include "ns3/nr-export.h"
 #include "ns3/socket.h"
 
+#include <list>
 #include <map>
 
 namespace ns3
@@ -160,6 +161,12 @@ class NR_EXPORT NrEpcSgwApplication : public Application
     void DoRecvDeleteFlowCommand(Ptr<Packet> packet);
 
     /**
+     * Process GTP-C Delete Session Request message, from the MME
+     * @param packet the packet containing the message
+     */
+    void DoRecvDeleteSessionRequest(Ptr<Packet> packet);
+
+    /**
      * Process GTP-C Delete Flow Response message
      * @param packet the packet containing the message
      */
@@ -184,6 +191,12 @@ class NR_EXPORT NrEpcSgwApplication : public Application
      * @param packet the packet containing the message
      */
     void DoRecvDeleteFlowRequest(Ptr<Packet> packet);
+
+    /**
+     * Process GTP-C Delete Session Response message, from the PGW
+     * @param packet the packet containing the message
+     */
+    void DoRecvDeleteSessionResponse(Ptr<Packet> packet);
 
     /**
      * SGW address in the S5 interface
@@ -256,6 +269,11 @@ class NR_EXPORT NrEpcSgwApplication : public Application
      * Map for QFI by TEID
      */
     std::map<uint32_t, uint8_t> m_qfiByTeidMap;
+
+    /**
+     * TEIDs of the session of each UE, by IMSI
+     */
+    std::map<uint64_t, std::list<uint32_t>> m_teidsByImsi;
 
     /**
      * MME S11 FTEID by SGW S5C TEID

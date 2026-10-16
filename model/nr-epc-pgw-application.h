@@ -139,6 +139,18 @@ class NR_EXPORT NrEpcPgwApplication : public Application
     void SetUeAddress(uint64_t imsi, Ipv4Address ueAddr);
 
     /**
+     * @param imsi the unique identifier of a UE
+     * @return whether the UE was added
+     */
+    bool HasUe(uint64_t imsi) const;
+
+    /**
+     * @param imsi the unique identifier of a previously added UE
+     * @return the IPv4 address of the UE, or the default address if it has none
+     */
+    Ipv4Address GetUeAddress(uint64_t imsi) const;
+
+    /**
      * set the address of a previously added UE
      *
      * @param imsi the unique identifier of the UE
@@ -179,6 +191,12 @@ class NR_EXPORT NrEpcPgwApplication : public Application
     void DoRecvDeleteFlowResponse(Ptr<Packet> packet);
 
     /**
+     * Process Delete Session Request message: delete all the flows of the UE
+     * @param packet GTPv2-C Delete Session Request message
+     */
+    void DoRecvDeleteSessionRequest(Ptr<Packet> packet);
+
+    /**
      * store info for each UE connected to this PGW
      */
     class NR_EXPORT NrUeInfo : public SimpleRefCount<NrUeInfo>
@@ -201,6 +219,11 @@ class NR_EXPORT NrEpcPgwApplication : public Application
          * @param qfi the ID of the QoS flow whose contexts is to be removed
          */
         void RemoveFlow(uint8_t qfi);
+
+        /**
+         * Delete the contexts of all the flows of this UE on PGW side
+         */
+        void RemoveFlows();
 
         /**
          * Classify the packet according to QoS rules of this UE

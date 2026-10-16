@@ -57,6 +57,7 @@ us a note on ns-developers mailing list.
 - Add ``NrSidelinkFilter``, a ``SpectrumTransmitFilter`` that discards gNB-to-gNB and UE-to-UE NR signals, skipping their propagation loss and channel matrix computation. Signals involving non-NR devices are not filtered. It drops sidelink transmissions, so it must not be installed in sidelink scenarios.
 - Add ``NrCoexistenceFilter``, a ``SpectrumTransmitFilter`` that discards the signals exchanged between NR and non-NR devices, skipping their propagation loss and channel matrix computation. It removes the interference between NR and the other technologies, so it must not be installed in coexistence scenarios.
 - Add the ``NrChannelHelper::AddFilters`` attribute, a bitmask of ``NrChannelHelper::Filter`` values (``CSIRS``, ``SIDELINK``, ``COEXISTENCE``) selecting the transmit filters installed on the spectrum channels it creates. It defaults to ``CSIRS`` only, which keeps the previous behavior, and must be set before the channels are created.
+- Add the GTP-C Delete Session procedure (``NrGtpcDeleteSessionRequestMessage``, ``NrGtpcDeleteSessionResponseMessage``), with which the MME deletes the session of a UE in the SGW and the PGW.
 - Add the ``NrUePowerControl::P0Srs`` attribute (-80 dBm by default, from -202 to 24 dBm as the ``p0`` field of ``SRS-Config`` in TS 38.331), the ``P0`` of the SRS power control formula of TS 38.213 clause 7.3.1, used when ``TSpec`` is ``TS38.213``.
 
 ### Changes to Existing API

@@ -1290,4 +1290,141 @@ NrGtpcDeleteFlowResponseMessage::SetQosFlowIds(std::list<uint8_t> qosFlowIds)
     m_qosFlowIds = qosFlowIds;
 }
 
+/////////////////////////////////////////////////////////////////////
+
+TypeId
+NrGtpcDeleteSessionRequestMessage::GetTypeId()
+{
+    static TypeId tid = TypeId("ns3::NrGtpcDeleteSessionRequestMessage")
+                            .SetParent<Header>()
+                            .SetGroupName("Nr")
+                            .AddConstructor<NrGtpcDeleteSessionRequestMessage>();
+    return tid;
+}
+
+NrGtpcDeleteSessionRequestMessage::NrGtpcDeleteSessionRequestMessage()
+{
+    SetMessageType(NrGtpcHeader::DeleteSessionRequest);
+    SetSequenceNumber(0);
+}
+
+NrGtpcDeleteSessionRequestMessage::~NrGtpcDeleteSessionRequestMessage()
+{
+}
+
+TypeId
+NrGtpcDeleteSessionRequestMessage::GetInstanceTypeId() const
+{
+    return GetTypeId();
+}
+
+uint32_t
+NrGtpcDeleteSessionRequestMessage::GetMessageSize() const
+{
+    return 0;
+}
+
+uint32_t
+NrGtpcDeleteSessionRequestMessage::GetSerializedSize() const
+{
+    return NrGtpcHeader::GetSerializedSize() + GetMessageSize();
+}
+
+void
+NrGtpcDeleteSessionRequestMessage::Serialize(Buffer::Iterator start) const
+{
+    Buffer::Iterator i = start;
+    NrGtpcHeader::PreSerialize(i);
+}
+
+uint32_t
+NrGtpcDeleteSessionRequestMessage::Deserialize(Buffer::Iterator start)
+{
+    Buffer::Iterator i = start;
+    NrGtpcHeader::PreDeserialize(i);
+    return GetSerializedSize();
+}
+
+void
+NrGtpcDeleteSessionRequestMessage::Print(std::ostream& os) const
+{
+    os << " teid " << GetTeid();
+}
+
+/////////////////////////////////////////////////////////////////////
+
+TypeId
+NrGtpcDeleteSessionResponseMessage::GetTypeId()
+{
+    static TypeId tid = TypeId("ns3::NrGtpcDeleteSessionResponseMessage")
+                            .SetParent<Header>()
+                            .SetGroupName("Nr")
+                            .AddConstructor<NrGtpcDeleteSessionResponseMessage>();
+    return tid;
+}
+
+NrGtpcDeleteSessionResponseMessage::NrGtpcDeleteSessionResponseMessage()
+{
+    SetMessageType(NrGtpcHeader::DeleteSessionResponse);
+    SetSequenceNumber(0);
+    m_cause = Cause_t::RESERVED;
+}
+
+NrGtpcDeleteSessionResponseMessage::~NrGtpcDeleteSessionResponseMessage()
+{
+}
+
+TypeId
+NrGtpcDeleteSessionResponseMessage::GetInstanceTypeId() const
+{
+    return GetTypeId();
+}
+
+uint32_t
+NrGtpcDeleteSessionResponseMessage::GetMessageSize() const
+{
+    return serializedSizeCause;
+}
+
+uint32_t
+NrGtpcDeleteSessionResponseMessage::GetSerializedSize() const
+{
+    return NrGtpcHeader::GetSerializedSize() + GetMessageSize();
+}
+
+void
+NrGtpcDeleteSessionResponseMessage::Serialize(Buffer::Iterator start) const
+{
+    Buffer::Iterator i = start;
+    NrGtpcHeader::PreSerialize(i);
+    SerializeCause(i, m_cause);
+}
+
+uint32_t
+NrGtpcDeleteSessionResponseMessage::Deserialize(Buffer::Iterator start)
+{
+    Buffer::Iterator i = start;
+    NrGtpcHeader::PreDeserialize(i);
+    DeserializeCause(i, m_cause);
+    return GetSerializedSize();
+}
+
+void
+NrGtpcDeleteSessionResponseMessage::Print(std::ostream& os) const
+{
+    os << " cause " << +m_cause;
+}
+
+NrGtpcDeleteSessionResponseMessage::Cause_t
+NrGtpcDeleteSessionResponseMessage::GetCause() const
+{
+    return m_cause;
+}
+
+void
+NrGtpcDeleteSessionResponseMessage::SetCause(Cause_t cause)
+{
+    m_cause = cause;
+}
+
 } // namespace ns3
