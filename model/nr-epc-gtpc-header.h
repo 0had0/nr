@@ -399,6 +399,18 @@ class NR_EXPORT NrGtpcCreateSessionRequestMessage : public NrGtpcHeader, public 
     void SetSenderCpFteid(NrGtpcHeader::Fteid_t fteid);
 
     /**
+     * Get the address of the PGW for the control plane (PGW S5/S8 Address for Control Plane)
+     * @return the address of the PGW, or the default address for the PGW of the SGW
+     */
+    Ipv4Address GetPgwAddress() const;
+    /**
+     * Set the address of the PGW for the control plane, e.g., the PGW of the home network of
+     * a UE with home-routed roaming
+     * @param pgwAddress the address of the PGW
+     */
+    void SetPgwAddress(Ipv4Address pgwAddress);
+
+    /**
      * Flow Context structure
      */
     struct NR_EXPORT FlowContextToBeCreated
@@ -424,6 +436,7 @@ class NR_EXPORT NrGtpcCreateSessionRequestMessage : public NrGtpcHeader, public 
     uint64_t m_imsi;                       //!< IMSI
     uint32_t m_uliEcgi;                    //!< UliEcgi
     NrGtpcHeader::Fteid_t m_senderCpFteid; //!< Sender CpFteid
+    Ipv4Address m_pgwAddress;              //!< PGW S5/S8 Address for Control Plane
 
     /// Flow Context list
     std::list<FlowContextToBeCreated> m_flowContextsToBeCreated;

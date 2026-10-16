@@ -191,10 +191,12 @@ class NR_EXPORT NrEpcPgwApplication : public Application
     void DoRecvDeleteFlowResponse(Ptr<Packet> packet);
 
     /**
-     * Process Delete Session Request message: delete all the flows of the UE
+     * Process Delete Session Request message: delete all the flows of the UE, if its session is
+     * still the one of the SGW
      * @param packet GTPv2-C Delete Session Request message
+     * @param sgwAddr the address of the SGW that sent the message
      */
-    void DoRecvDeleteSessionRequest(Ptr<Packet> packet);
+    void DoRecvDeleteSessionRequest(Ptr<Packet> packet, Ipv4Address sgwAddr);
 
     /**
      * store info for each UE connected to this PGW

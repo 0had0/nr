@@ -144,11 +144,13 @@ class NR_EXPORT NrEpcMmeApplication : public Application
 
     /**
      * Set the callback invoked when a UE attaches, before its session is created, so that the
-     * core network sets the address of the UE.
+     * core network sets the address of the UE and selects its PGW.
      *
-     * @param cb the callback, with the IMSI of the UE
+     * @param cb the callback, with the IMSI of the UE and the MME of its home network (nullptr
+     * for a subscriber), which returns the address of the PGW of the session (the default
+     * address for the PGW of the network of the MME)
      */
-    void SetUeAttachCallback(Callback<void, uint64_t> cb);
+    void SetUeAttachCallback(Callback<Ipv4Address, uint64_t, NrEpcMmeApplication*> cb);
 
     /**
      * TracedCallback signature for the attachment of a UE.
@@ -300,7 +302,8 @@ class NR_EXPORT NrEpcMmeApplication : public Application
     uint16_t m_gtpcUdpPort;   ///< UDP port for GTP-C protocol. Fixed by the standard to port 2123
 
     std::list<Ptr<NrEpcMmeApplication>> m_roamingPartners; ///< MMEs of the roaming partners
-    Callback<void, uint64_t> m_ueAttachCallback;           ///< callback on the attachment of a UE
+    /// callback on the attachment of a UE
+    Callback<Ipv4Address, uint64_t, NrEpcMmeApplication*> m_ueAttachCallback;
 
     /// Trace fired on the attachment of a UE
     TracedCallback<uint64_t, uint16_t, bool> m_attachTrace;

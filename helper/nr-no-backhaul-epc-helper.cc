@@ -162,6 +162,8 @@ NrNoBackhaulEpcHelper::NotifyConstructionCompleted()
 
     Ipv4Address pgwS5Address = pgwSgwIpIfaces.GetAddress(0);
     Ipv4Address sgwS5Address = pgwSgwIpIfaces.GetAddress(1);
+    m_pgwS5Address = pgwS5Address;
+    m_sgwS5Address = sgwS5Address;
 
     // Create S5-U socket in the PGW
     Ptr<Socket> pgwS5uSocket =
@@ -269,6 +271,24 @@ NrNoBackhaulEpcHelper::GetTypeId()
                           Ipv4AddressValue("7.0.0.0"),
                           MakeIpv4AddressAccessor(&NrNoBackhaulEpcHelper::m_ueIpv4Network),
                           MakeIpv4AddressChecker())
+            .AddAttribute("S8LinkDataRate",
+                          "The data rate of the S8 links created by AddRoamingPartner() for "
+                          "home-routed roaming",
+                          DataRateValue(DataRate("10Gb/s")),
+                          MakeDataRateAccessor(&NrNoBackhaulEpcHelper::m_s8LinkDataRate),
+                          MakeDataRateChecker())
+            .AddAttribute("S8LinkDelay",
+                          "The delay of the S8 links created by AddRoamingPartner() for "
+                          "home-routed roaming",
+                          TimeValue(Seconds(0)),
+                          MakeTimeAccessor(&NrNoBackhaulEpcHelper::m_s8LinkDelay),
+                          MakeTimeChecker())
+            .AddAttribute("S8LinkMtu",
+                          "The MTU of the S8 links created by AddRoamingPartner() for "
+                          "home-routed roaming",
+                          UintegerValue(2000),
+                          MakeUintegerAccessor(&NrNoBackhaulEpcHelper::m_s8LinkMtu),
+                          MakeUintegerChecker<uint16_t>())
             .AddAttribute("UeIpv4Mask",
                           "The mask of the IPv4 network of the UEs",
                           Ipv4MaskValue("255.0.0.0"),
@@ -323,11 +343,46 @@ NrNoBackhaulEpcHelper::DoDispose()
 }
 
 void
-NrNoBackhaulEpcHelper::AddRoamingPartner(Ptr<NrNoBackhaulEpcHelper> partner)
+NrNoBackhaulEpcHelper::AddRoamingPartner(Ptr<NrNoBackhaulEpcHelper> partner, bool homeRouted)
 {
-    NS_LOG_FUNCTION(this << partner);
+    NS_LOG_FUNCTION(this << partner << homeRouted);
     m_mmeApp->AddRoamingPartner(partner->m_mmeApp);
     partner->m_mmeApp->AddRoamingPartner(m_mmeApp);
+    if (homeRouted)
+    {
+        AddS8Link(this, partner);
+        AddS8Link(partner, this);
+    }
+}
+
+void
+NrNoBackhaulEpcHelper::AddS8Link(Ptr<NrNoBackhaulEpcHelper> visited,
+                                 Ptr<NrNoBackhaulEpcHelper> home)
+{
+    NS_LOG_FUNCTION(this << visited << home);
+    PointToPointHelper p2ph;
+    p2ph.SetDeviceAttribute("DataRate", DataRateValue(m_s8LinkDataRate));
+    p2ph.SetDeviceAttribute("Mtu", UintegerValue(m_s8LinkMtu));
+    p2ph.SetChannelAttribute("Delay", TimeValue(m_s8LinkDelay));
+    NetDeviceContainer devices = p2ph.Install(visited->m_sgw, home->m_pgw);
+    // 15.<visited index>.<home index>.0/30
+    Ipv4AddressHelper addresses(
+        Ipv4Address(15u << 24 | visited->GetCoreIndex() << 16 | home->GetCoreIndex() << 8),
+        "255.255.255.252");
+    addresses.Assign(devices);
+
+    // The SGW and the PGW use their S5 addresses on S8 too: the S8 link carries the traffic
+    // between them
+    Ipv4StaticRoutingHelper routingHelper;
+    auto sgwIpv4 = visited->m_sgw->GetObject<Ipv4>();
+    auto pgwIpv4 = home->m_pgw->GetObject<Ipv4>();
+    routingHelper.GetStaticRouting(sgwIpv4)->AddHostRouteTo(
+        home->m_pgwS5Address,
+        sgwIpv4->GetInterfaceForDevice(devices.Get(0)));
+    routingHelper.GetStaticRouting(pgwIpv4)->AddHostRouteTo(
+        visited->m_sgwS5Address,
+        pgwIpv4->GetInterfaceForDevice(devices.Get(1)));
+    visited->m_homeRoutedPartners[PeekPointer(home->m_mmeApp)] = PeekPointer(home);
 }
 
 Ptr<NrEpcMmeApplication>
@@ -336,10 +391,10 @@ NrNoBackhaulEpcHelper::GetMmeApplication() const
     return m_mmeApp;
 }
 
-void
-NrNoBackhaulEpcHelper::UeAttached(uint64_t imsi)
+Ipv4Address
+NrNoBackhaulEpcHelper::UeAttached(uint64_t imsi, NrEpcMmeApplication* home)
 {
-    NS_LOG_FUNCTION(this << imsi);
+    NS_LOG_FUNCTION(this << imsi << home);
     Ptr<NrUeNetDevice> ueDevice;
     for (auto node = NodeList::Begin(); node != NodeList::End() && !ueDevice; ++node)
     {
@@ -349,19 +404,34 @@ NrNoBackhaulEpcHelper::UeAttached(uint64_t imsi)
             ueDevice = device && device->GetImsi() == imsi ? device : nullptr;
         }
     }
-    if (!ueDevice)
-    {
-        // not an NR UE device (e.g., in the S1-U tests): its address is set by its owner
-        return;
-    }
-    Ptr<Ipv4> ueIpv4 = ueDevice->GetNode()->GetObject<Ipv4>();
+    Ptr<Ipv4> ueIpv4 = ueDevice ? ueDevice->GetNode()->GetObject<Ipv4>() : nullptr;
     const int32_t interface = ueIpv4 ? ueIpv4->GetInterfaceForDevice(ueDevice) : -1;
-    if (interface < 0)
+
+    // Home-routed roaming: the session is in the PGW of the home network, through the S8 link,
+    // and the UE keeps its home address
+    auto homeRouted = home ? m_homeRoutedPartners.find(home) : m_homeRoutedPartners.end();
+    if (homeRouted != m_homeRoutedPartners.end())
     {
-        // without IPv4 address, e.g., IPv6 only
-        return;
+        NrNoBackhaulEpcHelper* homeHelper = homeRouted->second;
+        if (interface >= 0)
+        {
+            SetUeAddress(ueIpv4,
+                         interface,
+                         Ipv4InterfaceAddress(homeHelper->m_pgwApp->GetUeAddress(imsi),
+                                              homeHelper->m_ueIpv4Mask),
+                         homeHelper->GetUeDefaultGatewayAddress());
+        }
+        return homeHelper->m_pgwS5Address;
     }
 
+    // a subscriber, or a UE roaming with local breakout: the session is in the PGW of this
+    // network
+    if (interface < 0)
+    {
+        // not an NR UE device with IPv4 (e.g., in the S1-U tests, or IPv6 only): its address is
+        // set by its owner
+        return Ipv4Address();
+    }
     if (!m_pgwApp->HasUe(imsi))
     {
         m_pgwApp->AddUe(imsi);
@@ -373,19 +443,31 @@ NrNoBackhaulEpcHelper::UeAttached(uint64_t imsi)
         address = m_uePgwAddressHelper.NewAddress();
         m_pgwApp->SetUeAddress(imsi, address);
     }
+    SetUeAddress(ueIpv4,
+                 interface,
+                 Ipv4InterfaceAddress(address, m_ueIpv4Mask),
+                 GetUeDefaultGatewayAddress());
+    return Ipv4Address();
+}
 
-    // the UE address in this network, which the UE gets with its PDU session
+void
+NrNoBackhaulEpcHelper::SetUeAddress(Ptr<Ipv4> ueIpv4,
+                                    int32_t interface,
+                                    Ipv4InterfaceAddress address,
+                                    Ipv4Address gateway)
+{
+    // the UE address in the network of the session, which the UE gets with its PDU session
     if (ueIpv4->GetNAddresses(interface) == 1 &&
-        ueIpv4->GetAddress(interface, 0).GetLocal() == address)
+        ueIpv4->GetAddress(interface, 0).GetLocal() == address.GetLocal())
     {
         return;
     }
-    NS_LOG_INFO("IMSI " << imsi << " gets address " << address);
+    NS_LOG_INFO("UE address " << address.GetLocal());
     while (ueIpv4->GetNAddresses(interface) > 0)
     {
         ueIpv4->RemoveAddress(interface, 0);
     }
-    ueIpv4->AddAddress(interface, Ipv4InterfaceAddress(address, m_ueIpv4Mask));
+    ueIpv4->AddAddress(interface, address);
     Ptr<Ipv4StaticRouting> routing = Ipv4StaticRoutingHelper().GetStaticRouting(ueIpv4);
     for (uint32_t route = routing->GetNRoutes(); route > 0; route--)
     {
@@ -394,7 +476,7 @@ NrNoBackhaulEpcHelper::UeAttached(uint64_t imsi)
             routing->RemoveRoute(route - 1);
         }
     }
-    routing->SetDefaultRoute(GetUeDefaultGatewayAddress(), interface);
+    routing->SetDefaultRoute(gateway, interface);
 }
 
 void

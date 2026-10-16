@@ -502,7 +502,8 @@ NrGtpcCreateSessionRequestMessage::GetInstanceTypeId() const
 uint32_t
 NrGtpcCreateSessionRequestMessage::GetMessageSize() const
 {
-    uint32_t serializedSize = serializedSizeImsi + serializedSizeUliEcgi + serializedSizeFteid;
+    uint32_t serializedSize =
+        serializedSizeImsi + serializedSizeUliEcgi + serializedSizeFteid + serializedSizeFteid;
     for (auto& bc : m_flowContextsToBeCreated)
     {
         serializedSize += serializedSizeFlowContextHeader + serializedSizeQfi +
@@ -528,6 +529,12 @@ NrGtpcCreateSessionRequestMessage::Serialize(Buffer::Iterator start) const
     SerializeImsi(i, m_imsi);
     SerializeUliEcgi(i, m_uliEcgi);
     SerializeFteid(i, m_senderCpFteid);
+    // PGW S5/S8 Address for Control Plane (an F-TEID IE, TS 29.274)
+    NrGtpcHeader::Fteid_t pgwFteid;
+    pgwFteid.interfaceType = NrGtpcHeader::S5_PGW_GTPC;
+    pgwFteid.addr = m_pgwAddress;
+    pgwFteid.teid = 0;
+    SerializeFteid(i, pgwFteid);
 
     for (auto& bc : m_flowContextsToBeCreated)
     {
@@ -553,6 +560,9 @@ NrGtpcCreateSessionRequestMessage::Deserialize(Buffer::Iterator start)
     DeserializeImsi(i, m_imsi);
     DeserializeUliEcgi(i, m_uliEcgi);
     DeserializeFteid(i, m_senderCpFteid);
+    NrGtpcHeader::Fteid_t pgwFteid;
+    DeserializeFteid(i, pgwFteid);
+    m_pgwAddress = pgwFteid.addr;
 
     m_flowContextsToBeCreated.clear();
     while (i.GetRemainingSize() > 0)
@@ -616,6 +626,18 @@ void
 NrGtpcCreateSessionRequestMessage::SetSenderCpFteid(NrGtpcHeader::Fteid_t fteid)
 {
     m_senderCpFteid = fteid;
+}
+
+Ipv4Address
+NrGtpcCreateSessionRequestMessage::GetPgwAddress() const
+{
+    return m_pgwAddress;
+}
+
+void
+NrGtpcCreateSessionRequestMessage::SetPgwAddress(Ipv4Address pgwAddress)
+{
+    m_pgwAddress = pgwAddress;
 }
 
 std::list<NrGtpcCreateSessionRequestMessage::FlowContextToBeCreated>

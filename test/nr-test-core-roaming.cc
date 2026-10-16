@@ -12,8 +12,10 @@
  * Each move causes a radio link failure, after which the UE selects the gNB of the other network
  * and attaches there. The test checks the attachments (roaming or not) in the MMEs of both
  * networks, the deletion of the session in the network the UE leaves (Cancel Location), the
- * address of the UE in each network, and that the UDP packets of the UE are echoed by the remote
- * host of the network serving it only.
+ * address of the UE in each network, and the remote host that echoes the UDP packets of the UE:
+ * with local breakout, the UE gets an address of the visited network, whose remote host only
+ * answers while the UE is there; with home-routed roaming, the UE keeps its home address, and the
+ * remote host of its home network answers in both networks, through the S8 link.
  */
 
 #include "ns3/core-module.h"
@@ -34,8 +36,14 @@ NS_LOG_COMPONENT_DEFINE("NrCoreRoamingTest");
 class NrCoreRoamingTestCase : public TestCase
 {
   public:
-    NrCoreRoamingTestCase()
-        : TestCase("Roaming between two core networks, and back")
+    /**
+     * Constructor.
+     * @param homeRouted whether the roaming is home-routed, rather than with local breakout
+     */
+    NrCoreRoamingTestCase(bool homeRouted)
+        : TestCase(std::string("Roaming between two core networks, and back, ") +
+                   (homeRouted ? "home-routed" : "with local breakout")),
+          m_homeRouted(homeRouted)
     {
     }
 
@@ -87,6 +95,7 @@ class NrCoreRoamingTestCase : public TestCase
         m_echoes[host + " host while " + (t < 3 ? "home" : (t < 9 ? "visited" : "home again"))]++;
     }
 
+    bool m_homeRouted;                              ///< whether the roaming is home-routed
     std::vector<std::string> m_attachments;         ///< attachments: network/cell/roaming
     std::vector<std::string> m_cancellations;       ///< networks that deleted the session
     std::map<std::string, Ipv4Address> m_addresses; ///< addresses of the UE, by period
@@ -110,7 +119,10 @@ NrCoreRoamingTestCase::DoRun()
     auto home = CreateObject<NrPointToPointEpcHelper>();
     auto visited = CreateObjectWithAttributes<NrPointToPointEpcHelper>("UeIpv4Network",
                                                                        Ipv4AddressValue("8.0.0.0"));
-    home->AddRoamingPartner(visited);
+    // a delay between the networks, so that the session deleted in the visited network when the
+    // UE is back home is deleted in the home PGW after the UE created its new session there
+    home->SetAttribute("S8LinkDelay", TimeValue(MilliSeconds(10)));
+    home->AddRoamingPartner(visited, m_homeRouted);
     auto [homeHost, homeHostAddress] = home->SetupRemoteHost("100Gb/s", 1500, MilliSeconds(10));
     auto [visitedHost, visitedHostAddress] =
         visited->SetupRemoteHost("100Gb/s", 1500, MilliSeconds(10));
@@ -214,18 +226,26 @@ NrCoreRoamingTestCase::DoRun()
                           true,
                           "Wrong deletions of the session");
     NS_TEST_EXPECT_MSG_EQ(m_addresses["home"], Ipv4Address("7.0.0.2"), "Wrong home address");
-    NS_TEST_EXPECT_MSG_EQ(m_addresses["visited"], Ipv4Address("8.0.0.2"), "Wrong visited address");
+    NS_TEST_EXPECT_MSG_EQ(m_addresses["visited"],
+                          Ipv4Address(m_homeRouted ? "7.0.0.2" : "8.0.0.2"),
+                          "Wrong address in the visited network");
     NS_TEST_EXPECT_MSG_EQ(m_addresses["home again"],
                           Ipv4Address("7.0.0.2"),
                           "Home address not restored");
+    // the network of the session: the visited network with local breakout, the home network
+    // with home-routed roaming
+    const std::string roamingHost = m_homeRouted ? "home" : "visited";
+    const std::string otherHost = m_homeRouted ? "visited" : "home";
     NS_TEST_EXPECT_MSG_GT(m_echoes["home host while home"], 10, "No traffic at home");
-    NS_TEST_EXPECT_MSG_GT(m_echoes["visited host while visited"], 10, "No traffic while roaming");
+    NS_TEST_EXPECT_MSG_GT(m_echoes[roamingHost + " host while visited"],
+                          10,
+                          "No traffic while roaming");
     NS_TEST_EXPECT_MSG_GT(m_echoes["home host while home again"], 10, "No traffic back home");
     NS_TEST_EXPECT_MSG_EQ(m_echoes["visited host while home"] +
                               m_echoes["visited host while home again"] +
-                              m_echoes["home host while visited"],
+                              m_echoes[otherHost + " host while visited"],
                           0,
-                          "Traffic through a network that does not serve the UE");
+                          "Traffic through a network that does not have the session");
 
     Simulator::Destroy();
 }
@@ -240,7 +260,8 @@ class NrCoreRoamingTestSuite : public TestSuite
     NrCoreRoamingTestSuite()
         : TestSuite("nr-core-roaming", Type::SYSTEM)
     {
-        AddTestCase(new NrCoreRoamingTestCase, Duration::QUICK);
+        AddTestCase(new NrCoreRoamingTestCase(false), Duration::QUICK);
+        AddTestCase(new NrCoreRoamingTestCase(true), Duration::QUICK);
     }
 };
 

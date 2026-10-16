@@ -304,7 +304,8 @@ NrEpcPgwApplication::RecvFromS5cSocket(Ptr<Socket> socket)
 {
     NS_LOG_FUNCTION(this << socket);
     NS_ASSERT(socket == m_s5cSocket);
-    Ptr<Packet> packet = socket->Recv();
+    Address from;
+    Ptr<Packet> packet = socket->RecvFrom(from);
     NrGtpcHeader header;
     packet->PeekHeader(header);
     uint16_t msgType = header.GetMessageType();
@@ -328,7 +329,7 @@ NrEpcPgwApplication::RecvFromS5cSocket(Ptr<Socket> socket)
         break;
 
     case NrGtpcHeader::DeleteSessionRequest:
-        DoRecvDeleteSessionRequest(packet);
+        DoRecvDeleteSessionRequest(packet, InetSocketAddress::ConvertFrom(from).GetIpv4());
         break;
 
     default:
@@ -350,10 +351,11 @@ NrEpcPgwApplication::DoRecvCreateSessionRequest(Ptr<Packet> packet)
 
     auto ueit = m_ueInfoByImsiMap.find(imsi);
     NS_ASSERT_MSG(ueit != m_ueInfoByImsiMap.end(), "unknown IMSI " << imsi);
-    ueit->second->SetSgwAddr(m_sgwS5Addr);
 
+    // the SGW of the session, which may be the SGW of another network (home-routed roaming)
     NrGtpcHeader::Fteid_t sgwS5cFteid = msg.GetSenderCpFteid();
     NS_ASSERT_MSG(sgwS5cFteid.interfaceType == NrGtpcHeader::S5_SGW_GTPC, "Wrong interface type");
+    ueit->second->SetSgwAddr(sgwS5cFteid.addr);
 
     NrGtpcCreateSessionResponseMessage msgOut;
     msgOut.SetTeid(sgwS5cFteid.teid);
@@ -412,7 +414,6 @@ NrEpcPgwApplication::DoRecvModifyFlowRequest(Ptr<Packet> packet)
 
     auto ueit = m_ueInfoByImsiMap.find(imsi);
     NS_ASSERT_MSG(ueit != m_ueInfoByImsiMap.end(), "unknown IMSI " << imsi);
-    ueit->second->SetSgwAddr(m_sgwS5Addr);
 
     std::list<NrGtpcModifyFlowRequestMessage::FlowContextToBeModified> flowContexts =
         msg.GetFlowContextsToBeModified();
@@ -432,8 +433,8 @@ NrEpcPgwApplication::DoRecvModifyFlowRequest(Ptr<Packet> packet)
 
     Ptr<Packet> packetOut = Create<Packet>();
     packetOut->AddHeader(msgOut);
-    NS_LOG_DEBUG("Send ModifyFlowResponse to SGW " << m_sgwS5Addr);
-    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_sgwS5Addr, m_gtpcUdpPort));
+    NS_LOG_DEBUG("Send ModifyFlowResponse to SGW " << ueit->second->GetSgwAddr());
+    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(ueit->second->GetSgwAddr(), m_gtpcUdpPort));
 }
 
 void
@@ -458,8 +459,10 @@ NrEpcPgwApplication::DoRecvDeleteFlowCommand(Ptr<Packet> packet)
 
     Ptr<Packet> packetOut = Create<Packet>();
     packetOut->AddHeader(msgOut);
-    NS_LOG_DEBUG("Send DeleteFlowRequest to SGW " << m_sgwS5Addr);
-    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_sgwS5Addr, m_gtpcUdpPort));
+    auto ueit = m_ueInfoByImsiMap.find(msg.GetTeid());
+    NS_ASSERT_MSG(ueit != m_ueInfoByImsiMap.end(), "unknown IMSI " << msg.GetTeid());
+    NS_LOG_DEBUG("Send DeleteFlowRequest to SGW " << ueit->second->GetSgwAddr());
+    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(ueit->second->GetSgwAddr(), m_gtpcUdpPort));
 }
 
 void
@@ -538,18 +541,23 @@ NrEpcPgwApplication::AddSgw(Ipv4Address sgwS5Addr)
 }
 
 void
-NrEpcPgwApplication::DoRecvDeleteSessionRequest(Ptr<Packet> packet)
+NrEpcPgwApplication::DoRecvDeleteSessionRequest(Ptr<Packet> packet, Ipv4Address sgwAddr)
 {
-    NS_LOG_FUNCTION(this);
+    NS_LOG_FUNCTION(this << sgwAddr);
 
     NrGtpcDeleteSessionRequestMessage msg;
     packet->RemoveHeader(msg);
     const uint64_t imsi = msg.GetTeid();
     auto ueit = m_ueInfoByImsiMap.find(imsi);
     NS_ASSERT_MSG(ueit != m_ueInfoByImsiMap.end(), "unknown IMSI " << imsi);
-    // the UE address stays reserved for the UE, should it attach again
-    NS_LOG_INFO("PGW removing the flows of IMSI " << imsi);
-    ueit->second->RemoveFlows();
+    // The session is deleted if it is still the one of that SGW: the UE may have created a new
+    // session through another SGW since. The UE address stays reserved for the UE, should it
+    // attach again.
+    if (ueit->second->GetSgwAddr() == sgwAddr)
+    {
+        NS_LOG_INFO("PGW removing the flows of IMSI " << imsi);
+        ueit->second->RemoveFlows();
+    }
 
     NrGtpcDeleteSessionResponseMessage msgOut;
     msgOut.SetCause(NrGtpcIes::REQUEST_ACCEPTED);
@@ -557,8 +565,8 @@ NrEpcPgwApplication::DoRecvDeleteSessionRequest(Ptr<Packet> packet)
     msgOut.ComputeMessageLength();
     Ptr<Packet> packetOut = Create<Packet>();
     packetOut->AddHeader(msgOut);
-    NS_LOG_DEBUG("Send DeleteSessionResponse to SGW " << m_sgwS5Addr);
-    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_sgwS5Addr, m_gtpcUdpPort));
+    NS_LOG_DEBUG("Send DeleteSessionResponse to SGW " << sgwAddr);
+    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(sgwAddr, m_gtpcUdpPort));
 }
 
 void

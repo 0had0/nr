@@ -50,12 +50,14 @@ New user-visible features
   ``NrRanEpcHelper::ConnectGnbToCore()``. ``NrNoBackhaulEpcHelper`` now derives
   from it.
 - A simulation can now have several core networks (EPC helpers), and their UEs
-  can roam between them with local breakout: a core network attaches the
-  subscribers of its roaming partners (``NrNoBackhaulEpcHelper::AddRoamingPartner()``)
-  with their QoS flows from their home network, assigns them an address of its
-  own UE network, and the network that served the UE before deletes its
-  session. The UEs move between the networks through radio link failures and
-  cell selection. Covered by the new ``nr-core-roaming`` test suite.
+  can roam between them (``NrNoBackhaulEpcHelper::AddRoamingPartner()``): a
+  core network attaches the subscribers of its roaming partners with their QoS
+  flows from their home network, and the network that served the UE before
+  deletes its session. With local breakout, the UE gets an address of the
+  visited network; with home-routed roaming, its session goes through an S8
+  link to the PGW of its home network, and it keeps its home address. The UEs
+  move between the networks through radio link failures and cell selection.
+  Covered by the new ``nr-core-roaming`` test suite.
 - The GTP-U packets between the gNBs and the SGW now carry the PDU Session
   Container extension header with the QFI, in both directions, as on the N3
   interface of 5G core networks (4 more bytes per packet). ``NrGtpuHeader`` now

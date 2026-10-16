@@ -10,7 +10,11 @@
 
 #include "nr-ran-epc-helper.h"
 
+#include "ns3/ipv4-interface-address.h"
+#include "ns3/ipv4.h"
 #include "ns3/nr-export.h"
+
+#include <map>
 
 namespace ns3
 {
@@ -75,13 +79,19 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrRanEpcHelper
 
     /**
      * Make the networks of this helper and of another one roaming partners: each one attaches
-     * the subscribers of the other one, with local breakout. A UE that attaches in a network
-     * gets an IPv4 address of that network, and its session in the network that served it
+     * the subscribers of the other one, and the session of a UE in the network that served it
      * before is deleted.
      *
+     * With local breakout, the session of a roaming UE is in the PGW of the visited network,
+     * and the UE gets an IPv4 address of that network. With home-routed roaming, the SGW of
+     * each network is connected to the PGW of the other one with an S8 link (S8Link*
+     * attributes of this helper): the session of a roaming UE is in the PGW of its home
+     * network, and the UE keeps its home address.
+     *
      * @param partner the helper of the other network
+     * @param homeRouted whether the roaming is home-routed, rather than with local breakout
      */
-    void AddRoamingPartner(Ptr<NrNoBackhaulEpcHelper> partner);
+    void AddRoamingPartner(Ptr<NrNoBackhaulEpcHelper> partner, bool homeRouted = false);
 
     /**
      * @return the MME application of the network
@@ -109,12 +119,45 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrRanEpcHelper
 
   private:
     /**
-     * Set the IPv4 address of a UE that attaches in the network: its address in the network,
-     * assigned on its first attachment if it has none.
+     * Select the PGW of a UE that attaches in the network, and set its IPv4 address: its home
+     * address with home-routed roaming, or else its address in this network, assigned on its
+     * first attachment if it has none.
      *
      * @param imsi the IMSI of the UE
+     * @param home the MME of the home network of the UE, nullptr for a subscriber
+     * @return the S5/S8 address of the PGW of the home network with home-routed roaming, or
+     * the default address for the PGW of this network
      */
-    void UeAttached(uint64_t imsi);
+    Ipv4Address UeAttached(uint64_t imsi, NrEpcMmeApplication* home);
+
+    /**
+     * Set the IPv4 address of a UE, replacing its address and default route of another network.
+     *
+     * @param ueIpv4 the IPv4 stack of the UE
+     * @param interface the interface of the NR device of the UE
+     * @param address the address of the UE
+     * @param gateway the default gateway of the UE
+     */
+    static void SetUeAddress(Ptr<Ipv4> ueIpv4,
+                             int32_t interface,
+                             Ipv4InterfaceAddress address,
+                             Ipv4Address gateway);
+
+    /**
+     * Create an S8 link between the SGW of a visited network and the PGW of a home network.
+     *
+     * @param visited the helper of the visited network
+     * @param home the helper of the home network
+     */
+    void AddS8Link(Ptr<NrNoBackhaulEpcHelper> visited, Ptr<NrNoBackhaulEpcHelper> home);
+
+    Ipv4Address m_pgwS5Address; ///< S5 address of the PGW
+    Ipv4Address m_sgwS5Address; ///< S5 address of the SGW
+    DataRate m_s8LinkDataRate;  ///< data rate of the S8 links
+    Time m_s8LinkDelay;         ///< delay of the S8 links
+    uint16_t m_s8LinkMtu;       ///< MTU of the S8 links
+    /// helpers of the home networks with home-routed roaming, by their MME
+    std::map<NrEpcMmeApplication*, NrNoBackhaulEpcHelper*> m_homeRoutedPartners;
 
     /**
      * helper to assign IPv4 addresses to UE devices as well as to the TUN device of the SGW/PGW

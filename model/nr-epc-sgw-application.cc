@@ -174,6 +174,13 @@ NrEpcSgwApplication::RecvFromS5cSocket(Ptr<Socket> socket)
     }
 }
 
+Ipv4Address
+NrEpcSgwApplication::GetPgwAddress(uint64_t imsi) const
+{
+    auto it = m_pgwByImsi.find(imsi);
+    return it != m_pgwByImsi.end() ? it->second : m_pgwAddr;
+}
+
 void
 NrEpcSgwApplication::RecvFromS1uSocket(Ptr<Socket> socket)
 {
@@ -184,7 +191,8 @@ NrEpcSgwApplication::RecvFromS1uSocket(Ptr<Socket> socket)
     packet->RemoveHeader(gtpu);
     uint32_t teid = gtpu.GetTeid();
 
-    SendToS5uSocket(packet, m_pgwAddr, teid);
+    auto pgwIt = m_pgwByTeid.find(teid);
+    SendToS5uSocket(packet, pgwIt != m_pgwByTeid.end() ? pgwIt->second : m_pgwAddr, teid);
 }
 
 void
@@ -240,6 +248,19 @@ NrEpcSgwApplication::DoRecvCreateSessionRequest(Ptr<Packet> packet)
     NrGtpcHeader::Fteid_t mmeS11Fteid = msg.GetSenderCpFteid();
     NS_ASSERT_MSG(mmeS11Fteid.interfaceType == NrGtpcHeader::S11_MME_GTPC, "wrong interface type");
 
+    // the PGW of the network of the SGW, unless the MME selected another one (home-routed
+    // roaming)
+    const Ipv4Address pgwAddr =
+        msg.GetPgwAddress() == Ipv4Address() ? m_pgwAddr : msg.GetPgwAddress();
+    if (pgwAddr != m_pgwAddr)
+    {
+        m_pgwByImsi[imsi] = pgwAddr;
+    }
+    else
+    {
+        m_pgwByImsi.erase(imsi);
+    }
+
     NrGtpcCreateSessionRequestMessage msgOut;
     msgOut.SetImsi(imsi);
     msgOut.SetUliEcgi(cellId);
@@ -267,6 +288,10 @@ NrEpcSgwApplication::DoRecvCreateSessionRequest(Ptr<Packet> packet)
         m_gnbByTeidMap[teid] = gnbAddr;
         m_qfiByTeidMap[teid] = flowContext.qfi;
         m_teidsByImsi[imsi].push_back(teid);
+        if (pgwAddr != m_pgwAddr)
+        {
+            m_pgwByTeid[teid] = pgwAddr;
+        }
 
         NrGtpcCreateSessionRequestMessage::FlowContextToBeCreated flowContextOut;
         flowContextOut.sgwS5uFteid.interfaceType = NrGtpcHeader::S5_SGW_GTPU;
@@ -285,8 +310,8 @@ NrEpcSgwApplication::DoRecvCreateSessionRequest(Ptr<Packet> packet)
 
     Ptr<Packet> packetOut = Create<Packet>();
     packetOut->AddHeader(msgOut);
-    NS_LOG_DEBUG("Send CreateSessionRequest to PGW " << m_pgwAddr);
-    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_pgwAddr, m_gtpcUdpPort));
+    NS_LOG_DEBUG("Send CreateSessionRequest to PGW " << pgwAddr);
+    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(pgwAddr, m_gtpcUdpPort));
 }
 
 void
@@ -337,8 +362,8 @@ NrEpcSgwApplication::DoRecvModifyFlowRequest(Ptr<Packet> packet)
 
     Ptr<Packet> packetOut = Create<Packet>();
     packetOut->AddHeader(msgOut);
-    NS_LOG_DEBUG("Send ModifyFlowRequest to PGW " << m_pgwAddr);
-    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_pgwAddr, m_gtpcUdpPort));
+    NS_LOG_DEBUG("Send ModifyFlowRequest to PGW " << GetPgwAddress(imsi));
+    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(GetPgwAddress(imsi), m_gtpcUdpPort));
 }
 
 void
@@ -365,8 +390,10 @@ NrEpcSgwApplication::DoRecvDeleteFlowCommand(Ptr<Packet> packet)
 
     Ptr<Packet> packetOut = Create<Packet>();
     packetOut->AddHeader(msgOut);
-    NS_LOG_DEBUG("Send DeleteFlowCommand to PGW " << m_pgwAddr);
-    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_pgwAddr, m_gtpcUdpPort));
+    NS_LOG_DEBUG("Send DeleteFlowCommand to PGW " << GetPgwAddress(msg.GetTeid()));
+    m_s5cSocket->SendTo(packetOut,
+                        0,
+                        InetSocketAddress(GetPgwAddress(msg.GetTeid()), m_gtpcUdpPort));
 }
 
 void
@@ -383,8 +410,10 @@ NrEpcSgwApplication::DoRecvDeleteFlowResponse(Ptr<Packet> packet)
 
     Ptr<Packet> packetOut = Create<Packet>();
     packetOut->AddHeader(msgOut);
-    NS_LOG_DEBUG("Send DeleteFlowResponse to PGW " << m_pgwAddr);
-    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_pgwAddr, m_gtpcUdpPort));
+    NS_LOG_DEBUG("Send DeleteFlowResponse to PGW " << GetPgwAddress(msg.GetTeid()));
+    m_s5cSocket->SendTo(packetOut,
+                        0,
+                        InetSocketAddress(GetPgwAddress(msg.GetTeid()), m_gtpcUdpPort));
 }
 
 void
@@ -396,20 +425,23 @@ NrEpcSgwApplication::DoRecvDeleteSessionRequest(Ptr<Packet> packet)
     packet->RemoveHeader(msg);
     const uint64_t imsi = msg.GetTeid();
     NS_LOG_DEBUG("IMSI " << imsi);
+    const Ipv4Address pgwAddr = GetPgwAddress(imsi);
     for (auto teid : m_teidsByImsi[imsi])
     {
         m_gnbByTeidMap.erase(teid);
         m_qfiByTeidMap.erase(teid);
+        m_pgwByTeid.erase(teid);
     }
     m_teidsByImsi.erase(imsi);
+    m_pgwByImsi.erase(imsi);
 
     NrGtpcDeleteSessionRequestMessage msgOut;
     msgOut.SetTeid(imsi);
     msgOut.ComputeMessageLength();
     Ptr<Packet> packetOut = Create<Packet>();
     packetOut->AddHeader(msgOut);
-    NS_LOG_DEBUG("Send DeleteSessionRequest to PGW " << m_pgwAddr);
-    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(m_pgwAddr, m_gtpcUdpPort));
+    NS_LOG_DEBUG("Send DeleteSessionRequest to PGW " << pgwAddr);
+    m_s5cSocket->SendTo(packetOut, 0, InetSocketAddress(pgwAddr, m_gtpcUdpPort));
 }
 
 ////////////////////////////////////////////

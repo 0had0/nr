@@ -38,7 +38,7 @@ NrEpcMmeApplication::DoDispose()
     delete m_s1apSapMme;
     // the roaming partners refer to each other
     m_roamingPartners.clear();
-    m_ueAttachCallback = MakeNullCallback<void, uint64_t>();
+    m_ueAttachCallback = MakeNullCallback<Ipv4Address, uint64_t, NrEpcMmeApplication*>();
     Application::DoDispose();
 }
 
@@ -136,7 +136,7 @@ NrEpcMmeApplication::AddRoamingPartner(Ptr<NrEpcMmeApplication> partner)
 }
 
 void
-NrEpcMmeApplication::SetUeAttachCallback(Callback<void, uint64_t> cb)
+NrEpcMmeApplication::SetUeAttachCallback(Callback<Ipv4Address, uint64_t, NrEpcMmeApplication*> cb)
 {
     m_ueAttachCallback = cb;
 }
@@ -231,15 +231,18 @@ NrEpcMmeApplication::DoInitialUeMessage(uint64_t mmeUeS1Id,
         ueInfo->servingMme = this;
     }
     it->second->cellId = gci;
+    // the PGW of the network of the MME, or of the home network with home-routed roaming
+    Ipv4Address pgwAddress;
     if (!m_ueAttachCallback.IsNull())
     {
-        m_ueAttachCallback(imsi);
+        pgwAddress = m_ueAttachCallback(imsi, it->second->home);
     }
     m_attachTrace(imsi, gci, it->second->home != nullptr);
 
     NrGtpcCreateSessionRequestMessage msg;
     msg.SetImsi(imsi);
     msg.SetUliEcgi(gci);
+    msg.SetPgwAddress(pgwAddress);
 
     NrGtpcHeader::Fteid_t mmeS11Fteid;
     mmeS11Fteid.interfaceType = NrGtpcHeader::S11_MME_GTPC;

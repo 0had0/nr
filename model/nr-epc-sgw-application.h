@@ -276,6 +276,23 @@ class NR_EXPORT NrEpcSgwApplication : public Application
     std::map<uint64_t, std::list<uint32_t>> m_teidsByImsi;
 
     /**
+     * PGW of the session of each UE, by IMSI, when not the PGW of the network of the SGW (e.g.,
+     * the PGW of the home network of a UE with home-routed roaming)
+     */
+    std::map<uint64_t, Ipv4Address> m_pgwByImsi;
+
+    /**
+     * PGW of each uplink TEID, when not the PGW of the network of the SGW
+     */
+    std::map<uint32_t, Ipv4Address> m_pgwByTeid;
+
+    /**
+     * @param imsi the IMSI of a UE
+     * @return the address of the PGW of the session of the UE
+     */
+    Ipv4Address GetPgwAddress(uint64_t imsi) const;
+
+    /**
      * MME S11 FTEID by SGW S5C TEID
      */
     std::map<uint32_t, NrGtpcHeader::Fteid_t> m_mmeS11FteidBySgwS5cTeid;

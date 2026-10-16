@@ -17,6 +17,11 @@ The endpoints are ``NrEpcSgwApplication`` (which also terminates S1-U and the S1
 ``NrEpcPgwApplication`` (which also terminates the SGi/Gi interface toward the external network
 through a ``VirtualNetDevice``).
 
+With home-routed roaming between two core networks of a simulation (see the :doc:`EPC <epc>`
+section), the SGW of the visited network and the PGW of the home network of a UE communicate as on
+S5, over an S8 link between the two networks: the SGW sends the messages and the uplink packets of
+each session to the PGW selected by the MME, and the PGW answers the SGW that created the session.
+
 User plane (S5-U)
 =================
 S5-U encapsulates the end-to-end IP packets in GTP-U/UDP/IP (UDP port 2152) using the ``NrGtpuHeader``,
