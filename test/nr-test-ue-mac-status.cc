@@ -20,7 +20,16 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <vector>
+
+/**
+ * @file
+ * @ingroup nr-test
+ *
+ * UE MAC STATUS PDU admission tests: the STATUS MAC subheader and the SHORT_BSR
+ * must fit in the UL grant, and a deferred STATUS must eventually be transmitted.
+ */
 
 namespace ns3
 {
@@ -28,74 +37,72 @@ NS_LOG_COMPONENT_DEFINE("NrTestUeMacStatus");
 
 namespace
 {
-/** @ingroup tests
- * @brief Ignore scheduler configuration confirmations.
+constexpr uint16_t RNTI = 1;                   ///< UE RNTI
+constexpr uint8_t FIRST_LCID = 3;              ///< LCID of the first AM bearer
+constexpr uint32_t SHORT_BSR_BYTES = 5;        ///< SHORT_BSR CE with its subheader
+constexpr uint32_t AM_STATUS_BYTES = 4;        ///< STATUS size advertised by legacy RLC AM
+constexpr uint32_t AM_ACK_MAC_BYTES = 4;       ///< ACK-only STATUS emitted with its subheader
+constexpr uint32_t AM_NACK_MAC_BYTES = 6;      ///< NACK-bearing STATUS emitted with its subheader
+constexpr uint32_t STATUS_SUBHEADER_BYTES = 2; ///< Subheader of a STATUS below 128 B
+constexpr uint32_t NUM_HARQ = 20;              ///< UE HARQ processes
+constexpr uint32_t MAX_SCHED_SLOTS = 8;        ///< Slots given to the scheduler to serve STATUS
+
+/**
+ * @ingroup nr-test
+ *
+ * CSCHED SAP user that ignores all confirmations.
  */
-class StatusCschedSap : public NrMacCschedSapUser
+class NullCschedSap : public NrMacCschedSapUser
 {
   public:
-    StatusCschedSap() = default;
-
-    void CschedCellConfigCnf(
-        [[maybe_unused]] const struct CschedCellConfigCnfParameters& params) override
+    void CschedCellConfigCnf(const CschedCellConfigCnfParameters&) override
     {
     }
 
-    void CschedUeConfigCnf(
-        [[maybe_unused]] const struct CschedUeConfigCnfParameters& params) override
+    void CschedUeConfigCnf(const CschedUeConfigCnfParameters&) override
     {
     }
 
-    void CschedLcConfigCnf(
-        [[maybe_unused]] const struct CschedLcConfigCnfParameters& params) override
+    void CschedLcConfigCnf(const CschedLcConfigCnfParameters&) override
     {
     }
 
-    void CschedLcReleaseCnf(
-        [[maybe_unused]] const struct CschedLcReleaseCnfParameters& params) override
+    void CschedLcReleaseCnf(const CschedLcReleaseCnfParameters&) override
     {
     }
 
-    void CschedUeReleaseCnf(
-        [[maybe_unused]] const struct CschedUeReleaseCnfParameters& params) override
+    void CschedUeReleaseCnf(const CschedUeReleaseCnfParameters&) override
     {
     }
 
-    void CschedUeConfigUpdateInd(
-        [[maybe_unused]] const struct CschedUeConfigUpdateIndParameters& params) override
+    void CschedUeConfigUpdateInd(const CschedUeConfigUpdateIndParameters&) override
     {
     }
 
-    void CschedCellConfigUpdateInd(
-        [[maybe_unused]] const struct CschedCellConfigUpdateIndParameters& params) override
+    void CschedCellConfigUpdateInd(const CschedCellConfigUpdateIndParameters&) override
     {
     }
 };
 
 /**
- * @ingroup tests
- * @brief SCHED SAP user that forwards the scheduling decision to a callback.
+ * @ingroup nr-test
+ *
+ * SCHED SAP user that collects the new-data UL DCIs of each scheduling decision.
  */
-class StatusSchedSap : public NrMacSchedSapUser
+class DciCollectorSchedSap : public NrMacSchedSapUser
 {
   public:
-    /**
-     * @brief Constructor
-     * @param schedConfigIndCallback Callback invoked with each scheduling
-     *        decision (SchedConfigInd).
-     */
-    StatusSchedSap(
-        std::function<void(const struct SchedConfigIndParameters&)> schedConfigIndCallback)
-        : NrMacSchedSapUser(),
-          m_schedConfigIndCallback(std::move(schedConfigIndCallback))
-    {
-    }
+    std::vector<std::shared_ptr<DciInfoElementTdma>> dcis; ///< Collected UL DCIs
 
-    void SchedConfigInd(const NrMacSchedSapUser::SchedConfigIndParameters& params) override
+    void SchedConfigInd(const SchedConfigIndParameters& params) override
     {
-        if (m_schedConfigIndCallback)
+        for (const auto& alloc : params.m_slotAllocInfo.m_varTtiAllocInfo)
         {
-            m_schedConfigIndCallback(params);
+            if (alloc.m_dci->m_format == DciInfoElementTdma::UL &&
+                alloc.m_dci->m_type == DciInfoElementTdma::DATA && alloc.m_dci->m_ndi == 1)
+            {
+                dcis.push_back(alloc.m_dci);
+            }
         }
     }
 
@@ -111,7 +118,7 @@ class StatusSchedSap : public NrMacSchedSapUser
 
     uint8_t GetNumHarqProcess() const override
     {
-        return 20;
+        return NUM_HARQ;
     }
 
     uint16_t GetBwpId() const override
@@ -134,100 +141,46 @@ class StatusSchedSap : public NrMacSchedSapUser
         return MilliSeconds(1);
     }
 
-    void BuildRarList([[maybe_unused]] SlotAllocInfo& allocInfo) override
+    void BuildRarList(SlotAllocInfo&) override
     {
-    }
-
-  private:
-    std::function<void(const NrMacSchedSapUser::SchedConfigIndParameters&)>
-        m_schedConfigIndCallback; //!< Decision callback
-};
-
-/** @ingroup tests
- * @brief Capture legacy RLC AM STATUS output and forward its BSR to UE MAC.
- */
-class StatusCapture : public NrRlcTestCaptureMac
-{
-  public:
-    NrMacSapProvider* forward{nullptr};                ///< Real MAC SAP.
-    std::vector<BufferStatusReportParameters> reports; ///< BSRs.
-
-    void BufferStatusReport(BufferStatusReportParameters p) override
-    {
-        reports.push_back(p);
-        NS_LOG_INFO("RLC_BSR lcid=" << +p.lcid << " status=" << p.statusPduSize);
-        if (forward)
-        {
-            forward->BufferStatusReport(p);
-        }
-    }
-
-    void TransmitPdu(TransmitPduParameters p) override
-    {
-        m_pdus.push_back(p.pdu->Copy());
-        NS_LOG_INFO("RLC_TX lcid=" << +p.lcid << " bytes=" << p.pdu->GetSize());
-        if (forward)
-        {
-            forward->TransmitPdu(p);
-        }
     }
 };
 
-/** Deliver legacy AMD data through the public MAC SAP.
- * @param rlc RLC entity.
- * @param lcid Receiving logical channel.
- * @param sn Sequence number.
- * @param poll Whether to request STATUS.
+/**
+ * @ingroup nr-test
+ *
+ * PHY SAP that records the MAC sub-PDUs and forwards SR and SHORT_BSR to an
+ * optional gNB scheduler.
  */
-void
-DeliverStatusData(Ptr<NrRlcAm> rlc, uint8_t lcid, uint16_t sn, bool poll)
-{
-    auto p = Create<Packet>(20);
-    NrRlcAmHeader h;
-    h.SetDataPdu();
-    h.SetSequenceNumber(nr::SequenceNumber10(sn));
-    h.SetResegmentationFlag(NrRlcAmHeader::PDU);
-    h.SetLastSegmentFlag(NrRlcAmHeader::LAST_PDU_SEGMENT);
-    h.SetSegmentOffset(0);
-    h.SetFramingInfo(0);
-    h.SetPollingBit(poll ? NrRlcAmHeader::STATUS_REPORT_IS_REQUESTED
-                         : NrRlcAmHeader::STATUS_REPORT_NOT_REQUESTED);
-    h.PushExtensionBit(NrRlcAmHeader::DATA_FIELD_FOLLOWS);
-    p->AddHeader(h);
-    NrRlcTag tag(Simulator::Now());
-    p->AddByteTag(tag, 1, h.GetSerializedSize());
-    rlc->GetNrMacSapUser()->ReceivePdu(NrMacSapUser::ReceivePduParameters(p, 1, lcid));
-}
-
-/** Record the actual sub-PDUs emitted by real UE MAC. */
 class StatusPhy : public NrPhySapProvider
 {
   public:
-    std::vector<Ptr<Packet>> packets; ///< MAC sub-PDUs.
-    Ptr<NrMacSchedulerNs3> scheduler; ///< Optional ordinary scheduler.
+    std::vector<Ptr<Packet>> packets; ///< MAC sub-PDUs in transmission order
+    Ptr<NrMacSchedulerNs3> scheduler; ///< Optional gNB scheduler
+    SfnSf now{0, 1, 0, 0};            ///< Current slot
 
     void SendMacPdu(const Ptr<Packet>& p, const SfnSf&, uint8_t, uint16_t) override
     {
         packets.push_back(p->Copy());
         NrRadioBearerTag tag;
         p->PeekPacketTag(tag);
-        NS_LOG_INFO("PHY_TX lcid=" << +tag.GetLcid() << " bytes=" << p->GetSize());
-        if (scheduler && tag.GetLcid() == NrMacHeaderFsUl::SHORT_BSR)
+        if (!scheduler || tag.GetLcid() != NrMacHeaderFsUl::SHORT_BSR)
         {
-            NrMacShortBsrCe shortBsr;
-            p->PeekHeader(shortBsr);
-            MacCeElement ce{};
-            ce.m_rnti = tag.GetRnti();
-            ce.m_macCeType = MacCeElement::BSR;
-            ce.m_macCeValue.m_bufferStatus = {shortBsr.m_bufferSizeLevel_0,
-                                              shortBsr.m_bufferSizeLevel_1,
-                                              shortBsr.m_bufferSizeLevel_2,
-                                              shortBsr.m_bufferSizeLevel_3};
-            NrMacSchedSapProvider::SchedUlMacCtrlInfoReqParameters req{};
-            req.m_macCeList.push_back(ce);
-            scheduler->GetMacSchedSapProvider()->SchedUlMacCtrlInfoReq(req);
-            NS_LOG_INFO("ORDINARY_BSR_FORWARDED level0=" << +shortBsr.m_bufferSizeLevel_0);
+            return;
         }
+        NrMacShortBsrCe bsr;
+        p->PeekHeader(bsr);
+        MacCeElement ce{};
+        ce.m_rnti = tag.GetRnti();
+        ce.m_macCeType = MacCeElement::BSR;
+        ce.m_macCeValue.m_bufferStatus = {bsr.m_bufferSizeLevel_0,
+                                          bsr.m_bufferSizeLevel_1,
+                                          bsr.m_bufferSizeLevel_2,
+                                          bsr.m_bufferSizeLevel_3};
+        NrMacSchedSapProvider::SchedUlMacCtrlInfoReqParameters req{};
+        req.m_sfnSf = now;
+        req.m_macCeList.push_back(ce);
+        scheduler->GetMacSchedSapProvider()->SchedUlMacCtrlInfoReq(req);
     }
 
     void SendControlMessage(Ptr<NrControlMessage> msg) override
@@ -235,10 +188,9 @@ class StatusPhy : public NrPhySapProvider
         if (scheduler && msg->GetMessageType() == NrControlMessage::SR)
         {
             NrMacSchedSapProvider::SchedUlSrInfoReqParameters sr{};
-            sr.m_snfSf = SfnSf(0, 2, 0, 0);
+            sr.m_snfSf = now;
             sr.m_srList.push_back(DynamicCast<NrSRMessage>(msg)->GetRNTI());
             scheduler->GetMacSchedSapProvider()->SchedUlSrInfoReq(sr);
-            NS_LOG_INFO("ORDINARY_SR_FORWARDED");
         }
     }
 
@@ -299,34 +251,257 @@ class StatusPhy : public NrPhySapProvider
     }
 };
 
-/** Check real UE MAC STATUS admission and pending-state retry. */
-class StatusMacCase : public TestCase
+/**
+ * @ingroup nr-test
+ *
+ * MAC SAP provider that forwards RLC requests to the UE MAC and records them.
+ */
+class ForwardingMacSap : public NrRlcTestCaptureMac
 {
   public:
-    /** @param tbs Injected transport block size, unused for ordinary scheduler cases.
-     * @param lcs Number of pending AM logical channels.
-     * @param loss Whether to generate NACK-bearing STATUS.
-     * @param scheduler Empty for injected grants, TDMA or OFDMA for normal SR allocation.
-     */
-    StatusMacCase(uint32_t tbs, uint32_t lcs, bool loss, const std::string& scheduler = "")
-        : TestCase("UE MAC STATUS: TBS " + std::to_string(tbs) + ", LCs " + std::to_string(lcs) +
-                   (loss ? ", NACK " : ", ACK ") + scheduler),
-          m_scheduler(scheduler),
-          m_tbs(tbs),
-          m_lcs(lcs),
-          m_loss(loss)
+    NrMacSapProvider* forward{nullptr}; ///< UE MAC SAP
+
+    void BufferStatusReport(BufferStatusReportParameters params) override
     {
+        forward->BufferStatusReport(params);
     }
 
-  private:
-    std::string m_scheduler; ///< Ordinary scheduler type, empty for injected grants.
-    std::vector<std::shared_ptr<DciInfoElementTdma>> m_dcis; ///< Unmodified scheduled DCIs.
-    uint32_t m_tbs, m_lcs;                                   ///< Injected TBS and real AM LC count.
-    bool m_loss;           ///< NACK-bearing rather than ACK-only STATUS.
-    uint32_t m_pending{0}; ///< Pending STATUS from public trace.
+    void TransmitPdu(TransmitPduParameters params) override
+    {
+        m_pdus.push_back(params.pdu->Copy());
+        forward->TransmitPdu(params);
+    }
+};
 
-    /** Record pending STATUS bytes from the public UE MAC state trace.
-     * @param bsr Current cached BSRs.
+/**
+ * @ingroup nr-test
+ *
+ * Real UE MAC wired to real RLC AM entities, a recording PHY and, optionally,
+ * a real gNB scheduler. Owns the objects and disposes them on destruction.
+ */
+class StatusBench
+{
+  public:
+    /**
+     * Constructor.
+     *
+     * @param lcs Number of AM logical channels.
+     * @param loss Whether the received AMD PDU leaves a gap, so STATUS carries a NACK.
+     * @param scheduler Empty for injected grants, otherwise "TDMA" or "OFDMA".
+     */
+    StatusBench(uint32_t lcs, bool loss, const std::string& scheduler)
+        : m_saps(lcs),
+          m_sinks(lcs)
+    {
+        if (!scheduler.empty())
+        {
+            InstallScheduler(scheduler);
+        }
+        mac = CreateObject<NrUeMac>();
+        mac->SetPhySapProvider(&phy);
+        mac->SetNumHarqProcess(NUM_HARQ);
+        mac->GetUeCmacSapProvider()->SetRnti(RNTI);
+        mac->TraceConnectWithoutContext("UeMacStateMachineTrace",
+                                        MakeCallback(&StatusBench::State, this));
+        for (uint32_t i = 0; i < lcs; ++i)
+        {
+            const uint8_t lcid = FIRST_LCID + i;
+            auto rlc = CreateObject<NrRlcAm>();
+            rlc->SetRnti(RNTI);
+            rlc->SetLcId(lcid);
+            m_saps[i].forward = mac->GetUeMacSapProvider();
+            rlc->SetNrMacSapProvider(&m_saps[i]);
+            rlc->SetNrRlcSapUser(m_sinks[i].GetSapUser());
+            rlc->SetAttribute("ReorderingTimer", TimeValue(MilliSeconds(1)));
+            mac->GetUeCmacSapProvider()->AddLc(lcid, {}, rlc->GetNrMacSapUser());
+            if (phy.scheduler)
+            {
+                NrMacCschedSapProvider::CschedLcConfigReqParameters req{};
+                req.m_rnti = RNTI;
+                nr::LogicalChannelConfigListElement_s cfg{};
+                cfg.m_logicalChannelIdentity = lcid;
+                cfg.m_logicalChannelGroup = 0;
+                cfg.m_direction = nr::LogicalChannelConfigListElement_s::DIR_BOTH;
+                cfg.m_fiveQi = 9;
+                req.m_logicalChannelConfigList.push_back(cfg);
+                phy.scheduler->GetMacCschedSapProvider()->CschedLcConfigReq(req);
+            }
+            // A missing SN 0 triggers a NACK STATUS after reordering, a polled SN 0 an ACK.
+            DeliverAmd(rlc, lcid, loss ? 3 : 0, !loss);
+            m_rlcs.push_back(rlc);
+        }
+        // Let the reordering timer expire, so every entity reports a pending STATUS.
+        Simulator::Stop(MilliSeconds(2));
+        Simulator::Run();
+    }
+
+    ~StatusBench()
+    {
+        Simulator::Destroy();
+        for (auto& rlc : m_rlcs)
+        {
+            rlc->Dispose();
+        }
+        mac->Dispose();
+        if (phy.scheduler)
+        {
+            phy.scheduler->Dispose();
+        }
+    }
+
+    /**
+     * Start a new slot at the UE MAC.
+     */
+    void Slot()
+    {
+        phy.now.Add(1);
+        mac->GetPhySapUser()->SlotIndication(phy.now);
+    }
+
+    /**
+     * Deliver an UL grant to the UE MAC.
+     *
+     * @param dci Grant to deliver.
+     */
+    void Grant(std::shared_ptr<DciInfoElementTdma> dci)
+    {
+        auto msg = Create<NrUlDciMessage>(dci);
+        msg->SetKDelay(0);
+        mac->GetPhySapUser()->ReceiveControlMessage(msg);
+    }
+
+    /**
+     * Deliver an injected UL grant to the UE MAC.
+     *
+     * @param tbs Transport block size of the grant.
+     */
+    void Grant(uint32_t tbs)
+    {
+        Grant(std::make_shared<DciInfoElementTdma>(RNTI,
+                                                   DciInfoElementTdma::UL,
+                                                   0,
+                                                   1,
+                                                   0,
+                                                   1,
+                                                   nullptr,
+                                                   tbs,
+                                                   1,
+                                                   0,
+                                                   DciInfoElementTdma::DATA,
+                                                   0,
+                                                   0));
+    }
+
+    /**
+     * Run one UL scheduling decision of the gNB scheduler and deliver its grant.
+     *
+     * @return The TBS of the delivered grant, or 0 if no grant was scheduled.
+     */
+    uint32_t Schedule()
+    {
+        m_sched.dcis.clear();
+        NrMacSchedSapProvider::SchedUlTriggerReqParameters req{};
+        req.m_snfSf = phy.now;
+        req.m_slotType = LteNrTddSlotType::UL;
+        phy.scheduler->GetMacSchedSapProvider()->SchedUlTriggerReq(req);
+        if (m_sched.dcis.empty())
+        {
+            return 0;
+        }
+        Grant(m_sched.dcis.front());
+        return m_sched.dcis.front()->m_tbSize;
+    }
+
+    /**
+     * @return Number of STATUS PDUs transmitted by all RLC entities.
+     */
+    uint32_t StatusSent() const
+    {
+        uint32_t sent = 0;
+        for (const auto& sap : m_saps)
+        {
+            sent += sap.m_pdus.size();
+        }
+        return sent;
+    }
+
+    /**
+     * @param from Index of the first MAC sub-PDU to count.
+     * @return Bytes of the MAC sub-PDUs transmitted since @p from.
+     */
+    uint32_t BytesSince(std::size_t from) const
+    {
+        uint32_t bytes = 0;
+        for (std::size_t i = from; i < phy.packets.size(); ++i)
+        {
+            bytes += phy.packets[i]->GetSize();
+        }
+        return bytes;
+    }
+
+    StatusPhy phy;             ///< Recording PHY
+    Ptr<NrUeMac> mac;          ///< UE MAC under test
+    uint32_t pendingStatus{0}; ///< STATUS bytes cached by the MAC after the last UL DCI
+    uint32_t pendingData{0};   ///< New-data bytes cached by the MAC after the last UL DCI
+
+  private:
+    /**
+     * Install a gNB scheduler that serves the UE.
+     *
+     * @param type "TDMA" or "OFDMA".
+     */
+    void InstallScheduler(const std::string& type)
+    {
+        phy.scheduler = type == "TDMA"
+                            ? StaticCast<NrMacSchedulerNs3>(CreateObject<NrMacSchedulerTdmaRR>())
+                            : StaticCast<NrMacSchedulerNs3>(CreateObject<NrMacSchedulerOfdmaRR>());
+        phy.scheduler->InstallDlAmc(CreateObject<NrAmc>());
+        phy.scheduler->InstallUlAmc(CreateObject<NrAmc>());
+        phy.scheduler->SetMacSchedSapUser(&m_sched);
+        phy.scheduler->SetMacCschedSapUser(&m_csched);
+        NrMacCschedSapProvider::CschedCellConfigReqParameters cell{};
+        cell.m_dlBandwidth = 10;
+        cell.m_ulBandwidth = 10;
+        phy.scheduler->GetMacCschedSapProvider()->CschedCellConfigReq(cell);
+        NrMacCschedSapProvider::CschedUeConfigReqParameters ue{};
+        ue.m_rnti = RNTI;
+        ue.m_beamId = BeamId(0, 0);
+        phy.scheduler->GetMacCschedSapProvider()->CschedUeConfigReq(ue);
+        phy.scheduler->SetDlCtrlSyms(1);
+        phy.scheduler->SetUlCtrlSyms(1);
+    }
+
+    /**
+     * Deliver one AMD PDU to an RLC AM entity.
+     *
+     * @param rlc Receiving RLC entity.
+     * @param lcid Logical channel of the entity.
+     * @param sn Sequence number of the PDU.
+     * @param poll Whether the PDU polls for STATUS.
+     */
+    static void DeliverAmd(Ptr<NrRlcAm> rlc, uint8_t lcid, uint16_t sn, bool poll)
+    {
+        auto p = Create<Packet>(20);
+        NrRlcAmHeader h;
+        h.SetDataPdu();
+        h.SetSequenceNumber(nr::SequenceNumber10(sn));
+        h.SetResegmentationFlag(NrRlcAmHeader::PDU);
+        h.SetLastSegmentFlag(NrRlcAmHeader::LAST_PDU_SEGMENT);
+        h.SetSegmentOffset(0);
+        h.SetFramingInfo(0);
+        h.SetPollingBit(poll ? NrRlcAmHeader::STATUS_REPORT_IS_REQUESTED
+                             : NrRlcAmHeader::STATUS_REPORT_NOT_REQUESTED);
+        h.PushExtensionBit(NrRlcAmHeader::DATA_FIELD_FOLLOWS);
+        p->AddHeader(h);
+        NrRlcTag tag(Simulator::Now());
+        p->AddByteTag(tag, 1, h.GetSerializedSize());
+        rlc->GetNrMacSapUser()->ReceivePdu(NrMacSapUser::ReceivePduParameters(p, RNTI, lcid));
+    }
+
+    /**
+     * Record the BSR cached by the UE MAC after each UL DCI.
+     *
+     * @param bsr Cached BSRs, per LCID.
      * @param where Trace source location.
      */
     void State(uint64_t,
@@ -339,283 +514,171 @@ class StatusMacCase : public TestCase
                int,
                std::string where)
     {
-        if (where == "ProcessUlDci")
+        if (where != "ProcessUlDci")
         {
-            m_pending = 0;
-            for (const auto& entry : bsr)
-            {
-                m_pending += entry.second.statusPduSize;
-            }
-            NS_LOG_INFO("MAC_PENDING_STATUS=" << m_pending);
+            return;
+        }
+        pendingStatus = 0;
+        pendingData = 0;
+        for (const auto& [lcid, report] : bsr)
+        {
+            pendingStatus += report.statusPduSize;
+            pendingData += report.txQueueSize;
         }
     }
 
-    /** Deliver an injected grant through the PHY SAP.
-     * @param mac UE MAC.
-     * @param tbs Transport block size.
-     */
-    void Inject(Ptr<NrUeMac> mac, uint32_t tbs)
-    {
-        auto dci = std::make_shared<DciInfoElementTdma>(1,
-                                                        DciInfoElementTdma::UL,
-                                                        0,
-                                                        1,
-                                                        0,
-                                                        1,
-                                                        nullptr,
-                                                        tbs,
-                                                        1,
-                                                        0,
-                                                        DciInfoElementTdma::DATA,
-                                                        0,
-                                                        0);
-        auto msg = Create<NrUlDciMessage>(dci);
-        msg->SetKDelay(0);
-        NS_LOG_INFO("INJECTED_TBS=" << tbs);
-        mac->GetPhySapUser()->ReceiveControlMessage(msg);
-    }
-
-    void DoRun() override
-    {
-        StatusPhy phy;
-        StatusCschedSap csap;
-        StatusSchedSap ssap([this](const auto& p) {
-            for (const auto& a : p.m_slotAllocInfo.m_varTtiAllocInfo)
-            {
-                if (a.m_dci->m_format == DciInfoElementTdma::UL &&
-                    a.m_dci->m_type == DciInfoElementTdma::DATA && a.m_dci->m_ndi == 1)
-                {
-                    m_dcis.push_back(a.m_dci);
-                }
-            }
-        });
-        if (!m_scheduler.empty())
-        {
-            phy.scheduler =
-                m_scheduler == "TDMA"
-                    ? StaticCast<NrMacSchedulerNs3>(CreateObject<NrMacSchedulerTdmaRR>())
-                    : StaticCast<NrMacSchedulerNs3>(CreateObject<NrMacSchedulerOfdmaRR>());
-            phy.scheduler->InstallDlAmc(CreateObject<NrAmc>());
-            phy.scheduler->InstallUlAmc(CreateObject<NrAmc>());
-            phy.scheduler->SetMacSchedSapUser(&ssap);
-            phy.scheduler->SetMacCschedSapUser(&csap);
-            NrMacCschedSapProvider::CschedCellConfigReqParameters cell{};
-            cell.m_dlBandwidth = 10;
-            cell.m_ulBandwidth = 10;
-            phy.scheduler->GetMacCschedSapProvider()->CschedCellConfigReq(cell);
-            NrMacCschedSapProvider::CschedUeConfigReqParameters ue{};
-            ue.m_rnti = 1;
-            ue.m_beamId = BeamId(0, 0);
-            phy.scheduler->GetMacCschedSapProvider()->CschedUeConfigReq(ue);
-            phy.scheduler->SetDlCtrlSyms(1);
-            phy.scheduler->SetUlCtrlSyms(1);
-        }
-        auto mac = CreateObject<NrUeMac>();
-        mac->SetPhySapProvider(&phy);
-        mac->SetNumHarqProcess(20);
-        mac->GetUeCmacSapProvider()->SetRnti(1);
-        mac->TraceConnectWithoutContext("UeMacStateMachineTrace",
-                                        MakeCallback(&StatusMacCase::State, this));
-        std::vector<StatusCapture> captures(m_lcs);
-        std::vector<NrRlcTestSduSink> sinks(m_lcs);
-        std::vector<Ptr<NrRlcAm>> rlcs;
-        for (uint32_t i = 0; i < m_lcs; ++i)
-        {
-            auto rlc = CreateObject<NrRlcAm>();
-            rlc->SetRnti(1);
-            rlc->SetLcId(3 + i);
-            captures[i].forward = mac->GetUeMacSapProvider();
-            rlc->SetNrMacSapProvider(&captures[i]);
-            rlc->SetNrRlcSapUser(sinks[i].GetSapUser());
-            rlc->SetAttribute("ReorderingTimer", TimeValue(MilliSeconds(1)));
-            NrUeCmacSapProvider::LogicalChannelConfig lc{};
-            lc.logicalChannelGroup = 0;
-            mac->GetUeCmacSapProvider()->AddLc(3 + i, lc, rlc->GetNrMacSapUser());
-            if (phy.scheduler)
-            {
-                NrMacCschedSapProvider::CschedLcConfigReqParameters req{};
-                req.m_rnti = 1;
-                nr::LogicalChannelConfigListElement_s cfg{};
-                cfg.m_logicalChannelIdentity = 3 + i;
-                cfg.m_logicalChannelGroup = 0;
-                cfg.m_direction = nr::LogicalChannelConfigListElement_s::DIR_BOTH;
-                cfg.m_fiveQi = 9;
-                req.m_logicalChannelConfigList.push_back(cfg);
-                phy.scheduler->GetMacCschedSapProvider()->CschedLcConfigReq(req);
-            }
-            DeliverStatusData(rlc, 3 + i, m_loss ? 3 : 0, !m_loss);
-            rlcs.push_back(rlc);
-        }
-        Simulator::Stop(MilliSeconds(2));
-        Simulator::Run();
-        for (const auto& c : captures)
-        {
-            NS_TEST_ASSERT_MSG_EQ(c.reports.back().statusPduSize, 4, "Use actual upstream BSR4");
-        }
-        mac->GetPhySapUser()->SlotIndication(SfnSf(0, 2, 0, 0));
-        if (phy.scheduler)
-        {
-            NrMacSchedSapProvider::SchedUlTriggerReqParameters req{};
-            req.m_snfSf = SfnSf(0, 2, 0, 0);
-            req.m_slotType = LteNrTddSlotType::UL;
-            phy.scheduler->GetMacSchedSapProvider()->SchedUlTriggerReq(req);
-            NS_TEST_ASSERT_MSG_EQ(m_dcis.size(), 1, "Ordinary SR creates one grant");
-            if (m_dcis.empty())
-            {
-                Simulator::Destroy();
-                for (auto rlc : rlcs)
-                {
-                    rlc->Dispose();
-                }
-                mac->Dispose();
-                phy.scheduler->Dispose();
-                return;
-            }
-            const auto dci = m_dcis.front();
-            m_tbs = dci->m_tbSize;
-            NS_LOG_INFO("ORDINARY_DCI scheduler=" << m_scheduler << " tbs=" << m_tbs << " symbols="
-                                                  << +dci->m_numSym << " mcs=" << +dci->m_mcs);
-            auto msg = Create<NrUlDciMessage>(dci);
-            msg->SetKDelay(0);
-            mac->GetPhySapUser()->ReceiveControlMessage(msg);
-        }
-        else
-        {
-            Inject(mac, m_tbs);
-        }
-        uint32_t used = 0;
-        uint32_t sent = 0;
-        for (const auto& p : phy.packets)
-        {
-            used += p->GetSize();
-        }
-        for (const auto& c : captures)
-        {
-            sent += c.m_pdus.size();
-        }
-        const uint32_t statusMacBytes = 6;
-        const uint32_t expectedSent = std::min(m_lcs, (m_tbs - 5) / statusMacBytes);
-        NS_LOG_INFO("RESULT tbs=" << m_tbs << " lcs=" << m_lcs << " sent=" << sent
-                                  << " used=" << used << " pending=" << m_pending);
-        NS_TEST_ASSERT_MSG_EQ(sent, expectedSent, "Admission uses the advertised STATUS size");
-        NS_TEST_ASSERT_MSG_EQ(used <= m_tbs, true, "TB respected");
-        NS_TEST_ASSERT_MSG_EQ(used,
-                              sent * (m_loss ? 6 : 4) + 5,
-                              "Actual STATUS subheaders and SHORT_BSR bytes");
-        NrMacShortBsrCe shortBsr;
-        phy.packets.back()->PeekHeader(shortBsr);
-        NS_TEST_ASSERT_MSG_EQ(phy.packets.back()->GetSize(), 5, "SHORT_BSR serialized size");
-        NS_TEST_ASSERT_MSG_EQ(shortBsr.m_bufferSizeLevel_0 > 0,
-                              sent < m_lcs,
-                              "Deferred STATUS remains advertised in the SHORT_BSR");
-        NS_TEST_ASSERT_MSG_EQ(m_pending, 4 * (m_lcs - sent), "Deferred STATUS remains pending");
-        if (sent < m_lcs)
-        {
-            if (!m_loss)
-            {
-                for (uint32_t repeat = 0; repeat < 3; ++repeat)
-                {
-                    const auto start = phy.packets.size();
-                    Inject(mac, m_tbs);
-                    uint32_t repeatedBytes = 0;
-                    for (std::size_t i = start; i < phy.packets.size(); ++i)
-                    {
-                        repeatedBytes += phy.packets[i]->GetSize();
-                    }
-                    NS_TEST_ASSERT_MSG_EQ(repeatedBytes <= m_tbs,
-                                          true,
-                                          "Repeated grant stays bounded");
-                    NS_TEST_ASSERT_MSG_EQ(captures.front().m_pdus.size(),
-                                          0,
-                                          "Small ACK grant remains deferred");
-                    NS_TEST_ASSERT_MSG_EQ(m_pending, 4, "Repeated grants preserve pending STATUS");
-                }
-            }
-            const auto firstPackets = phy.packets.size();
-            uint32_t retryTbs = m_loss ? std::max(12u, m_tbs) : 11;
-            if (phy.scheduler)
-            {
-                m_dcis.clear();
-                NrMacSchedSapProvider::SchedUlTriggerReqParameters req{};
-                req.m_snfSf = SfnSf(0, 3, 0, 0);
-                req.m_slotType = LteNrTddSlotType::UL;
-                phy.scheduler->GetMacSchedSapProvider()->SchedUlTriggerReq(req);
-                NS_TEST_ASSERT_MSG_EQ(m_dcis.size(), 1, "Actual BSR schedules remaining STATUS");
-                if (m_dcis.empty())
-                {
-                    Simulator::Destroy();
-                    for (auto rlc : rlcs)
-                    {
-                        rlc->Dispose();
-                    }
-                    mac->Dispose();
-                    phy.scheduler->Dispose();
-                    return;
-                }
-                const auto& dci = m_dcis.front();
-                retryTbs = dci->m_tbSize;
-                NS_LOG_INFO("ORDINARY_RETRY_DCI scheduler=" << m_scheduler << " tbs=" << retryTbs);
-                mac->GetPhySapUser()->SlotIndication(SfnSf(0, 3, 0, 0));
-                auto msg = Create<NrUlDciMessage>(dci);
-                msg->SetKDelay(0);
-                mac->GetPhySapUser()->ReceiveControlMessage(msg);
-            }
-            else
-            {
-                Inject(mac, retryTbs);
-            }
-            uint32_t retryUsed = 0;
-            uint32_t finalSent = 0;
-            for (std::size_t i = firstPackets; i < phy.packets.size(); ++i)
-            {
-                retryUsed += phy.packets[i]->GetSize();
-            }
-            for (const auto& c : captures)
-            {
-                finalSent += c.m_pdus.size();
-            }
-            NS_LOG_INFO("RETRY sent_total=" << finalSent << " used=" << retryUsed
-                                            << " pending=" << m_pending);
-            NS_TEST_ASSERT_MSG_EQ(finalSent, m_lcs, "Retry sends exactly once");
-            NS_TEST_ASSERT_MSG_EQ(m_pending, 0, "Retry clears cached STATUS");
-            NS_TEST_ASSERT_MSG_EQ(retryUsed <= retryTbs, true, "Retry TB respected");
-        }
-        Simulator::Destroy();
-        for (auto rlc : rlcs)
-        {
-            rlc->Dispose();
-        }
-        mac->Dispose();
-        if (phy.scheduler)
-        {
-            phy.scheduler->Dispose();
-        }
-    }
+    std::vector<ForwardingMacSap> m_saps;  ///< Per-LC MAC SAPs
+    std::vector<NrRlcTestSduSink> m_sinks; ///< Per-LC RLC SDU sinks
+    std::vector<Ptr<NrRlcAm>> m_rlcs;      ///< RLC AM entities
+    DciCollectorSchedSap m_sched;          ///< Scheduler decision collector
+    NullCschedSap m_csched;                ///< Scheduler configuration sink
 };
 
-/** @ingroup tests
- * @brief Synthetic STATUS producer to exercise MAC header boundaries and reentrant BSR.
+/**
+ * @ingroup nr-test
  *
- * Legacy AM advertises four bytes. Larger STATUS sizes here test the MAC SAP contract,
- * rather than claiming that the current AM entity produces these sizes.
+ * Check that an injected grant admits only the STATUS PDUs that fit with their
+ * subheader and the SHORT_BSR, and that a larger grant sends the rest once.
+ */
+class StatusAdmissionCase : public TestCase
+{
+  public:
+    /**
+     * Constructor.
+     *
+     * @param tbs Transport block size of the first grant.
+     * @param lcs Number of AM logical channels with a pending STATUS.
+     * @param loss Whether STATUS carries a NACK.
+     */
+    StatusAdmissionCase(uint32_t tbs, uint32_t lcs, bool loss)
+        : TestCase("STATUS admission: TBS " + std::to_string(tbs) + ", LCs " + std::to_string(lcs) +
+                   (loss ? ", NACK" : ", ACK")),
+          m_tbs(tbs),
+          m_lcs(lcs),
+          m_loss(loss)
+    {
+    }
+
+  private:
+    void DoRun() override
+    {
+        StatusBench bench(m_lcs, m_loss, "");
+        bench.Slot();
+        bench.Grant(m_tbs);
+
+        const uint32_t admissionBytes = AM_STATUS_BYTES + STATUS_SUBHEADER_BYTES;
+        const uint32_t expected = std::min(m_lcs, (m_tbs - SHORT_BSR_BYTES) / admissionBytes);
+        const uint32_t emittedBytes = m_loss ? AM_NACK_MAC_BYTES : AM_ACK_MAC_BYTES;
+        const uint32_t sent = bench.StatusSent();
+        NS_TEST_ASSERT_MSG_EQ(sent, expected, "Admission must account for subheader and BSR");
+        NS_TEST_ASSERT_MSG_EQ(bench.BytesSince(0),
+                              sent * emittedBytes + SHORT_BSR_BYTES,
+                              "TB carries the admitted STATUS and the SHORT_BSR");
+        NS_TEST_ASSERT_MSG_EQ(bench.phy.packets.back()->GetSize(),
+                              SHORT_BSR_BYTES,
+                              "SHORT_BSR closes the TB");
+        NS_TEST_ASSERT_MSG_EQ(bench.pendingStatus,
+                              AM_STATUS_BYTES * (m_lcs - sent),
+                              "Deferred STATUS stays pending");
+
+        const auto first = bench.phy.packets.size();
+        const uint32_t retryTbs = m_lcs * admissionBytes + SHORT_BSR_BYTES;
+        bench.Slot();
+        bench.Grant(retryTbs);
+        NS_TEST_ASSERT_MSG_EQ(bench.StatusSent(), m_lcs, "Every STATUS is sent exactly once");
+        NS_TEST_ASSERT_MSG_EQ(bench.pendingStatus, 0, "No STATUS left pending");
+        NS_TEST_ASSERT_MSG_LT_OR_EQ(bench.BytesSince(first), retryTbs, "Retry TB respected");
+    }
+
+    uint32_t m_tbs; ///< Transport block size of the first grant
+    uint32_t m_lcs; ///< Number of AM logical channels
+    bool m_loss;    ///< Whether STATUS carries a NACK
+};
+
+/**
+ * @ingroup nr-test
+ *
+ * Check that a STATUS deferred because the grant was too small, with no other
+ * data in the buffers, is eventually granted by the gNB scheduler from the
+ * SHORT_BSR and transmitted exactly once.
+ */
+class StatusEventualAllocationCase : public TestCase
+{
+  public:
+    /**
+     * Constructor.
+     *
+     * @param scheduler "TDMA" or "OFDMA".
+     * @param lcs Number of AM logical channels with a pending STATUS.
+     * @param firstTbs TBS of the first grant; 0 lets the scheduler answer the SR.
+     */
+    StatusEventualAllocationCase(const std::string& scheduler, uint32_t lcs, uint32_t firstTbs)
+        : TestCase("STATUS eventual allocation: " + scheduler + ", LCs " + std::to_string(lcs) +
+                   ", first TBS " + (firstTbs ? std::to_string(firstTbs) : "from SR")),
+          m_scheduler(scheduler),
+          m_lcs(lcs),
+          m_firstTbs(firstTbs)
+    {
+    }
+
+  private:
+    void DoRun() override
+    {
+        StatusBench bench(m_lcs, false, m_scheduler);
+        bench.Slot();
+        if (m_firstTbs > 0)
+        {
+            bench.Grant(m_firstTbs);
+            NS_TEST_ASSERT_MSG_LT(bench.StatusSent(), m_lcs, "First grant must defer STATUS");
+        }
+        NS_TEST_ASSERT_MSG_EQ(bench.pendingData, 0, "Only STATUS is pending");
+
+        for (uint32_t slot = 0; slot < MAX_SCHED_SLOTS && bench.StatusSent() < m_lcs; ++slot)
+        {
+            bench.Slot();
+            const auto first = bench.phy.packets.size();
+            const uint32_t tbs = bench.Schedule();
+            NS_TEST_ASSERT_MSG_LT_OR_EQ(bench.BytesSince(first), tbs, "Scheduled TB respected");
+        }
+        NS_TEST_ASSERT_MSG_EQ(bench.StatusSent(), m_lcs, "Deferred STATUS eventually sent once");
+        NS_TEST_ASSERT_MSG_EQ(bench.pendingStatus, 0, "No STATUS left pending");
+    }
+
+    std::string m_scheduler; ///< gNB scheduler type
+    uint32_t m_lcs;          ///< Number of AM logical channels
+    uint32_t m_firstTbs;     ///< TBS of the first grant, 0 for none
+};
+
+/**
+ * @ingroup nr-test
+ *
+ * MAC SAP user that emits a STATUS of a given size on each transmission
+ * opportunity and reports new data from within the callback.
  */
 class BoundaryStatusProducer : public NrMacSapUser
 {
   public:
-    /** @param mac UE MAC SAP.
-     * @param size Advertised and emitted STATUS size.
+    /**
+     * Constructor.
+     *
+     * @param mac UE MAC SAP.
+     * @param size PDU size to emit, capped by the TxOpportunity.
+     * @param reentrantBytes New data to report on each opportunity.
      */
-    BoundaryStatusProducer(NrMacSapProvider* mac, uint32_t size)
+    BoundaryStatusProducer(NrMacSapProvider* mac,
+                           uint32_t size,
+                           uint32_t reentrantBytes = REENTRANT_DATA_BYTES)
         : m_mac(mac),
-          m_size(size)
+          m_size(size),
+          m_reentrantBytes(reentrantBytes)
     {
     }
 
     void NotifyTxOpportunity(TxOpportunityParameters params) override
     {
-        ++m_count;
+        ++count;
         NrMacSapProvider::TransmitPduParameters tx{};
-        tx.pdu = Create<Packet>(m_size);
+        tx.pdu = Create<Packet>(std::min(m_size, params.bytes));
         tx.rnti = params.rnti;
         tx.lcid = params.lcid;
         tx.layer = params.layer;
@@ -625,7 +688,7 @@ class BoundaryStatusProducer : public NrMacSapUser
         NrMacSapProvider::BufferStatusReportParameters bsr{};
         bsr.rnti = params.rnti;
         bsr.lcid = params.lcid;
-        bsr.txQueueSize = 2;
+        bsr.txQueueSize = m_reentrantBytes;
         m_mac->BufferStatusReport(bsr);
     }
 
@@ -637,20 +700,29 @@ class BoundaryStatusProducer : public NrMacSapUser
     {
     }
 
-    uint32_t m_count{0}; ///< STATUS opportunities received.
+    static constexpr uint32_t REENTRANT_DATA_BYTES = 2; ///< New data reported on each opportunity
+    uint32_t count{0};                                  ///< Opportunities received
+
   private:
-    NrMacSapProvider* m_mac; ///< Real UE MAC SAP.
-    uint32_t m_size;         ///< STATUS bytes.
+    NrMacSapProvider* m_mac;   ///< UE MAC SAP
+    uint32_t m_size;           ///< PDU size
+    uint32_t m_reentrantBytes; ///< New data reported on each opportunity
 };
 
-/** @ingroup tests
- * @brief Check variable-size MAC subheaders and synchronous BSR updates.
+/**
+ * @ingroup nr-test
+ *
+ * Check STATUS admission around the 2/3-byte MAC subheader boundary, and that a
+ * BSR reported from within the transmission opportunity is preserved.
  */
 class StatusBoundaryCase : public TestCase
 {
   public:
-    /** @param size STATUS payload size at the MAC header boundary.
-     * @param fits Whether the first grant has all overhead space.
+    /**
+     * Constructor.
+     *
+     * @param size STATUS size.
+     * @param fits Whether the first grant has room for the subheader and the SHORT_BSR.
      */
     StatusBoundaryCase(uint32_t size, bool fits)
         : TestCase("STATUS header boundary " + std::to_string(size) +
@@ -661,120 +733,212 @@ class StatusBoundaryCase : public TestCase
     }
 
   private:
-    uint32_t m_size;      ///< Advertised STATUS size.
-    bool m_fits;          ///< Whether all overhead fits.
-    uint32_t m_status{0}; ///< Pending STATUS bytes.
-    uint32_t m_data{0};   ///< New data reported during the synchronous STATUS callback.
-
-    /** Observe the cached BSR after processing an UL DCI.
-     * @param bsr Cached BSRs.
-     * @param where Trace location.
-     */
-    void State(uint64_t,
-               SfnSf,
-               uint16_t,
-               uint16_t,
-               uint8_t,
-               NrUeMac::SrBsrMachine,
-               std::unordered_map<uint8_t, NrMacSapProvider::BufferStatusReportParameters> bsr,
-               int,
-               std::string where)
-    {
-        if (where == "ProcessUlDci")
-        {
-            m_status = bsr.at(3).statusPduSize;
-            m_data = bsr.at(3).txQueueSize;
-        }
-    }
-
     void DoRun() override
     {
-        StatusPhy phy;
-        auto mac = CreateObject<NrUeMac>();
-        mac->SetPhySapProvider(&phy);
-        mac->SetNumHarqProcess(20);
-        mac->GetUeCmacSapProvider()->SetRnti(1);
-        BoundaryStatusProducer producer(mac->GetUeMacSapProvider(), m_size);
-        NrUeCmacSapProvider::LogicalChannelConfig lc{};
-        mac->GetUeCmacSapProvider()->AddLc(3, lc, &producer);
-        mac->TraceConnectWithoutContext("UeMacStateMachineTrace",
-                                        MakeCallback(&StatusBoundaryCase::State, this));
+        StatusBench bench(0, false, "");
+        BoundaryStatusProducer producer(bench.mac->GetUeMacSapProvider(), m_size);
+        bench.mac->GetUeCmacSapProvider()->AddLc(FIRST_LCID, {}, &producer);
         NrMacSapProvider::BufferStatusReportParameters bsr{};
-        bsr.rnti = 1;
-        bsr.lcid = 3;
+        bsr.rnti = RNTI;
+        bsr.lcid = FIRST_LCID;
         bsr.statusPduSize = m_size;
-        mac->GetUeMacSapProvider()->BufferStatusReport(bsr);
-        mac->GetPhySapUser()->SlotIndication(SfnSf(0, 2, 0, 0));
+        bench.mac->GetUeMacSapProvider()->BufferStatusReport(bsr);
+        bench.Slot();
+
         NrMacHeaderVs header;
         header.SetSize(m_size);
-        const uint32_t headerBytes = m_size == 127 ? 2 : 3;
-        NS_TEST_ASSERT_MSG_EQ(header.GetSerializedSize(), headerBytes, "Actual header threshold");
-        const uint32_t tbs = m_size + headerBytes + 5;
-        auto grant = [mac](uint32_t bytes) {
-            auto dci = std::make_shared<DciInfoElementTdma>(1,
-                                                            DciInfoElementTdma::UL,
-                                                            0,
-                                                            1,
-                                                            0,
-                                                            1,
-                                                            nullptr,
-                                                            bytes,
-                                                            1,
-                                                            0,
-                                                            DciInfoElementTdma::DATA,
-                                                            0,
-                                                            0);
-            auto msg = Create<NrUlDciMessage>(dci);
-            msg->SetKDelay(0);
-            mac->GetPhySapUser()->ReceiveControlMessage(msg);
-        };
-        grant(tbs - (m_fits ? 0 : 1));
-        NS_TEST_ASSERT_MSG_EQ(producer.m_count,
-                              m_fits ? 1 : 0,
-                              "Account for header and BSR before admission");
-        NS_TEST_ASSERT_MSG_EQ(m_status, m_fits ? 0 : m_size, "Preserve deferred STATUS");
+        const uint32_t tbs = m_size + header.GetSerializedSize() + SHORT_BSR_BYTES;
+        bench.Grant(m_fits ? tbs : tbs - 1);
+        NS_TEST_ASSERT_MSG_EQ(producer.count, m_fits ? 1 : 0, "Admission includes the overhead");
+        NS_TEST_ASSERT_MSG_EQ(bench.pendingStatus, m_fits ? 0 : m_size, "Deferred STATUS kept");
         if (!m_fits)
         {
-            grant(tbs);
+            bench.Grant(tbs);
         }
-        NS_TEST_ASSERT_MSG_EQ(producer.m_count, 1, "Transmit exactly once");
-        NS_TEST_ASSERT_MSG_EQ(m_status, 0, "Clear transmitted STATUS");
-        NS_TEST_ASSERT_MSG_EQ(m_data, 2, "Preserve reentrant new-data BSR");
-        const auto& status = phy.packets.at(phy.packets.size() - 2);
-        NS_TEST_ASSERT_MSG_EQ(status->GetSize(), m_size + headerBytes, "Serialized STATUS size");
-        NS_TEST_ASSERT_MSG_EQ(phy.packets.back()->GetSize(), 5, "SHORT_BSR reservation");
-        Simulator::Destroy();
-        mac->Dispose();
+        NS_TEST_ASSERT_MSG_EQ(producer.count, 1, "STATUS sent exactly once");
+        NS_TEST_ASSERT_MSG_EQ(bench.pendingStatus, 0, "Sent STATUS cleared");
+        NS_TEST_ASSERT_MSG_EQ(bench.pendingData,
+                              BoundaryStatusProducer::REENTRANT_DATA_BYTES,
+                              "Reentrant BSR preserved");
+        NS_TEST_ASSERT_MSG_EQ(bench.phy.packets.at(bench.phy.packets.size() - 2)->GetSize(),
+                              tbs - SHORT_BSR_BYTES,
+                              "STATUS serialized with its subheader");
+    }
+
+    uint32_t m_size; ///< STATUS size
+    bool m_fits;     ///< Whether the first grant fits the overhead
+};
+
+/**
+ * @ingroup nr-test
+ *
+ * Check that the SHORT_BSR of a UE with only STATUS, or only new data, pending
+ * advertises exactly the PDUs, their subheaders and a single SHORT_BSR, and that a
+ * grant of the advertised size sends them all.
+ */
+class BsrSizedGrantCase : public TestCase
+{
+  public:
+    /**
+     * Constructor.
+     *
+     * @param size Pending bytes of each logical channel.
+     * @param lcs Number of logical channels with pending bytes.
+     * @param data Whether the pending bytes are new data rather than STATUS.
+     */
+    BsrSizedGrantCase(uint32_t size, uint32_t lcs, bool data)
+        : TestCase(std::string(data ? "TX data" : "STATUS") + " BSR-sized grant " +
+                   std::to_string(size) + ", LCs " + std::to_string(lcs)),
+          m_size(size),
+          m_lcs(lcs),
+          m_data(data)
+    {
+    }
+
+  private:
+    void DoRun() override
+    {
+        StatusBench bench(0, false, "");
+        std::vector<std::unique_ptr<BoundaryStatusProducer>> producers;
+        for (uint32_t i = 0; i < m_lcs; ++i)
+        {
+            const uint8_t lcid = FIRST_LCID + i;
+            producers.push_back(
+                std::make_unique<BoundaryStatusProducer>(bench.mac->GetUeMacSapProvider(),
+                                                         m_size,
+                                                         m_data ? 0 : REENTRANT_BYTES));
+            bench.mac->GetUeCmacSapProvider()->AddLc(lcid, {}, producers.back().get());
+            NrMacSapProvider::BufferStatusReportParameters bsr{};
+            bsr.rnti = RNTI;
+            bsr.lcid = lcid;
+            if (m_data)
+            {
+                bsr.txQueueSize = m_size;
+            }
+            else
+            {
+                bsr.statusPduSize = m_size;
+            }
+            bench.mac->GetUeMacSapProvider()->BufferStatusReport(bsr);
+        }
+        auto sent = [&producers]() {
+            uint32_t count = 0;
+            for (const auto& producer : producers)
+            {
+                count += producer->count;
+            }
+            return count;
+        };
+        bench.Slot();
+
+        // A grant with room for the SHORT_BSR only defers every PDU and reports them.
+        bench.Grant(SHORT_BSR_BYTES);
+        NS_TEST_ASSERT_MSG_EQ(sent(), 0, "PDUs deferred");
+        NrMacShortBsrCe shortBsr;
+        bench.phy.packets.back()->PeekHeader(shortBsr);
+        const auto advertised = NrMacShortBsrCe::FromLevelToBytes(shortBsr.m_bufferSizeLevel_0);
+
+        NrMacHeaderVs header;
+        header.SetSize(m_size);
+        const uint32_t needed = m_lcs * (m_size + header.GetSerializedSize()) + SHORT_BSR_BYTES;
+        NS_TEST_ASSERT_MSG_EQ(
+            advertised,
+            NrMacShortBsrCe::FromLevelToBytes(NrMacShortBsrCe::FromBytesToLevel(needed)),
+            "BSR advertises the PDUs, their subheaders and one SHORT_BSR");
+
+        bench.Slot();
+        bench.Grant(advertised);
+        NS_TEST_ASSERT_MSG_EQ(sent(), m_lcs, "BSR-sized grant sends every PDU in one go");
+        NS_TEST_ASSERT_MSG_EQ(bench.pendingStatus, 0, "No STATUS left pending");
+        NS_TEST_ASSERT_MSG_EQ(bench.pendingData,
+                              m_data ? 0 : m_lcs * REENTRANT_BYTES,
+                              "Only the data reported during the TxOpportunities is left");
+    }
+
+    uint32_t m_size; ///< Pending bytes of each logical channel
+    uint32_t m_lcs;  ///< Number of logical channels
+    bool m_data;     ///< Whether the pending bytes are new data rather than STATUS
+
+    /// New data reported during each STATUS opportunity
+    static constexpr uint32_t REENTRANT_BYTES = BoundaryStatusProducer::REENTRANT_DATA_BYTES;
+};
+
+/**
+ * @ingroup nr-test
+ *
+ * Check that a grant to a UE without any buffered byte, nor any logical channel that
+ * ever reported, is filled by a zero SHORT_BSR rather than left empty.
+ */
+class PaddingBsrCase : public TestCase
+{
+  public:
+    PaddingBsrCase()
+        : TestCase("Grant without data carries a zero SHORT_BSR")
+    {
+    }
+
+  private:
+    void DoRun() override
+    {
+        StatusBench bench(0, false, "");
+        bench.Slot();
+        bench.Grant(SHORT_BSR_BYTES);
+        NS_TEST_ASSERT_MSG_EQ(bench.phy.packets.size(), 1, "TB holds a single sub-PDU");
+        const auto& pdu = bench.phy.packets.front();
+        NrRadioBearerTag tag;
+        pdu->PeekPacketTag(tag);
+        NS_TEST_ASSERT_MSG_EQ(+tag.GetLcid(), +NrMacHeaderFsUl::SHORT_BSR, "Sub-PDU is a BSR");
+        NS_TEST_ASSERT_MSG_EQ(pdu->GetSize(), SHORT_BSR_BYTES, "SHORT_BSR size");
+        NrMacShortBsrCe shortBsr;
+        pdu->PeekHeader(shortBsr);
+        NS_TEST_ASSERT_MSG_EQ(+shortBsr.m_bufferSizeLevel_0, 0, "Nothing buffered");
     }
 };
 
-/** @ingroup tests
- * @brief UE MAC STATUS overhead admission and pending-state regression tests.
+/**
+ * @ingroup nr-test
+ *
+ * UE MAC STATUS overhead admission test suite.
  */
-class UeMacStatusSuite : public TestSuite
+class NrUeMacStatusTestSuite : public TestSuite
 {
   public:
-    UeMacStatusSuite()
+    NrUeMacStatusTestSuite()
         : TestSuite("nr-ue-mac-status", Type::UNIT)
     {
         for (uint32_t tbs : {9u, 10u, 11u, 12u})
         {
-            AddTestCase(new StatusMacCase(tbs, 1, true), Duration::QUICK);
+            AddTestCase(new StatusAdmissionCase(tbs, 1, true), Duration::QUICK);
+            AddTestCase(new StatusAdmissionCase(tbs, 1, false), Duration::QUICK);
         }
-        AddTestCase(new StatusMacCase(12, 2, true), Duration::QUICK);
-        AddTestCase(new StatusMacCase(9, 1, false), Duration::QUICK);
-        AddTestCase(new StatusMacCase(11, 1, false), Duration::QUICK);
-        AddTestCase(new StatusMacCase(12, 1, false), Duration::QUICK);
-        AddTestCase(new StatusMacCase(0, 3, true, "TDMA"), Duration::QUICK);
-        AddTestCase(new StatusMacCase(0, 3, true, "OFDMA"), Duration::QUICK);
+        AddTestCase(new StatusAdmissionCase(12, 2, true), Duration::QUICK);
+        AddTestCase(new StatusAdmissionCase(17, 3, false), Duration::QUICK);
+        for (const std::string scheduler : {"TDMA", "OFDMA"})
+        {
+            AddTestCase(new StatusEventualAllocationCase(scheduler, 3, 0), Duration::QUICK);
+            AddTestCase(new StatusEventualAllocationCase(scheduler, 1, 9), Duration::QUICK);
+            AddTestCase(new StatusEventualAllocationCase(scheduler, 3, 11), Duration::QUICK);
+        }
         for (uint32_t size : {127u, 128u})
         {
             AddTestCase(new StatusBoundaryCase(size, false), Duration::QUICK);
             AddTestCase(new StatusBoundaryCase(size, true), Duration::QUICK);
         }
+        // PDUs + subheaders + one SHORT_BSR land exactly on SHORT_BSR levels (28, 38, 142 and
+        // 74 B), so any over-count of the overhead bumps the advertised level, and any
+        // over-reservation in the data path leaves a segment behind.
+        for (bool data : {false, true})
+        {
+            AddTestCase(new BsrSizedGrantCase(21, 1, data), Duration::QUICK);
+            AddTestCase(new BsrSizedGrantCase(31, 1, data), Duration::QUICK);
+            AddTestCase(new BsrSizedGrantCase(134, 1, data), Duration::QUICK);
+            AddTestCase(new BsrSizedGrantCase(21, 3, data), Duration::QUICK);
+        }
+        AddTestCase(new PaddingBsrCase(), Duration::QUICK);
     }
 };
 
-UeMacStatusSuite g_ueMacStatusSuite;
+/// Static instance of the test suite
+NrUeMacStatusTestSuite g_nrUeMacStatusTestSuite;
 } // namespace
 } // namespace ns3

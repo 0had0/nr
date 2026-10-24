@@ -520,7 +520,6 @@ set(test_sources
     test/nr-test-phy.cc
     test/nr-test-resource-assignment-matrix.cc
     test/nr-test-rlc-am-e2e.cc
-    test/nr-test-ue-mac-status.cc
     test/nr-test-rlc-am-status.cc
     test/nr-test-rlc-am-transmitter.cc
     test/nr-test-rlc-header.cc
@@ -542,6 +541,7 @@ set(test_sources
     test/nr-test-sfnsf.cc
     test/nr-test-subband.cc
     test/nr-test-timings.cc
+    test/nr-test-ue-mac-status.cc
     test/nr-test-ul-mimo-cqi.cc
     test/nr-uplink-power-control-test.cc
     test/nr-system-scheduler-test-qos.cc

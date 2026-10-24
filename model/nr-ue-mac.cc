@@ -23,11 +23,61 @@
 #include "ns3/random-variable-stream.h"
 #include "ns3/uinteger.h"
 
+#include <algorithm>
+#include <limits>
+#include <utility>
+
 namespace ns3
 {
 
 NS_LOG_COMPONENT_DEFINE("NrUeMac");
 NS_OBJECT_ENSURE_REGISTERED(NrUeMac);
+
+namespace
+{
+/// Bytes of the SHORT_BSR MAC CE, including its subheader, appended to every UL TB
+constexpr uint32_t SHORT_BSR_BYTES = 5;
+/// Minimum TxOpportunity bytes that RLC AM can use
+constexpr uint32_t RLC_AM_MIN_TXOP_BYTES = 7;
+
+/**
+ * @param pduBytes Size of a MAC SDU.
+ * @return Bytes of the MAC subheader that carries it.
+ */
+uint32_t
+MacSubheaderBytes(uint32_t pduBytes)
+{
+    NrMacHeaderVs header;
+    // Any size beyond the 16-bit L field needs the same, largest, subheader.
+    header.SetSize(std::min<uint32_t>(pduBytes, std::numeric_limits<uint16_t>::max()));
+    return header.GetSerializedSize();
+}
+
+/**
+ * @param wanted Bytes the RLC entity would like to send.
+ * @param room Bytes available for the sub-PDU, subheader included.
+ * @return Largest TxOpportunity, at most @p wanted, whose sub-PDU fits in @p room.
+ */
+uint32_t
+TxOppFitting(uint32_t wanted, uint32_t room)
+{
+    uint32_t bytes = std::min(wanted, room);
+    while (bytes > 0 && bytes + MacSubheaderBytes(bytes) > room)
+    {
+        bytes = room > MacSubheaderBytes(bytes) ? room - MacSubheaderBytes(bytes) : 0;
+    }
+    return bytes;
+}
+
+/**
+ * @return Bytes of the smallest data sub-PDU: the minimum RLC AM TxOpportunity and its subheader.
+ */
+uint32_t
+MinDataSubPduBytes()
+{
+    return RLC_AM_MIN_TXOP_BYTES + MacSubheaderBytes(RLC_AM_MIN_TXOP_BYTES);
+}
+} // namespace
 
 uint8_t NrUeMac::g_raPreambleId = 0;
 
@@ -515,11 +565,8 @@ NrUeMac::SendBufferStatusReport(const SfnSf& dataSfn, uint8_t symStart)
         return;
     }
 
-    if (m_ulBsrReceived.empty())
-    {
-        NS_LOG_INFO("No BSR report to transmit");
-        return;
-    }
+    // Every UL TB carries a SHORT_BSR, all zero when nothing is buffered: it is then the
+    // padding BSR of 3GPP TS 38.321, clause 5.4.5, and no TB is left empty.
     MacCeElement bsr = MacCeElement();
     bsr.m_rnti = m_rnti;
     bsr.m_macCeType = MacCeElement::BSR;
@@ -541,26 +588,30 @@ NrUeMac::SendBufferStatusReport(const SfnSf& dataSfn, uint8_t symStart)
         queue.at(lcg) +=
             ((*it).second.txQueueSize + (*it).second.retxQueueSize + (*it).second.statusPduSize);
 
-        if (queue.at(lcg) != 0)
+        // Each non-empty queue goes out in a sub-PDU whose subheader depends on its size.
+        using QueueBytes = std::pair<const char*, uint32_t>;
+        for (const auto& [kind, bytes] : {QueueBytes{"TX", (*it).second.txQueueSize},
+                                          QueueBytes{"RETX", (*it).second.retxQueueSize},
+                                          QueueBytes{"STATUS", (*it).second.statusPduSize}})
         {
-            NS_LOG_DEBUG("Adding 5 bytes for SHORT_BSR for LCID:" << +lcid);
-            queue.at(lcg) += 5;
+            if (bytes == 0)
+            {
+                continue;
+            }
+            NS_LOG_DEBUG("Adding " << MacSubheaderBytes(bytes) << " bytes for " << kind
+                                   << " subheader for LCID:" << +lcid);
+            queue.at(lcg) += MacSubheaderBytes(bytes);
         }
-        if ((*it).second.txQueueSize > 0)
-        {
-            NS_LOG_DEBUG("Adding 3 bytes for TX subheader for LCID:" << +lcid);
-            queue.at(lcg) += 3;
-        }
-        if ((*it).second.retxQueueSize > 0)
-        {
-            NS_LOG_DEBUG("Adding 3 bytes for RX subheader for LCID:" << +lcid);
-            queue.at(lcg) += 3;
-        }
-        if ((*it).second.statusPduSize > 0)
-        {
-            NS_LOG_DEBUG("Adding 3 bytes for RLC status PDU subheader for LCID:" << +lcid);
-            queue.at(lcg) += 3;
-        }
+    }
+
+    // The next TB carries one SHORT_BSR, whatever the number of LCs and LCGs with data.
+    auto firstActiveLcg =
+        std::find_if(queue.begin(), queue.end(), [](uint32_t bytes) { return bytes > 0; });
+    if (firstActiveLcg != queue.end())
+    {
+        NS_LOG_DEBUG("Adding " << SHORT_BSR_BYTES << " bytes for SHORT_BSR to LCG "
+                               << std::distance(queue.begin(), firstActiveLcg));
+        *firstActiveLcg += SHORT_BSR_BYTES;
     }
 
     NS_LOG_INFO("Sending BSR with this info for the LCG: "
@@ -912,26 +963,6 @@ NrUeMac::ProcessUlDci(const Ptr<NrUlDciMessage>& dciMsg)
             m_lastSrSent = Time::Min();
             m_srCounter = 0;
             NS_LOG_INFO("m_srState = ACTIVE -> INACTIVE, bufSize " << GetTotalBufSize());
-
-            // the UE may have been scheduled, but we didn't use a single byte
-            // of the allocation. So send an empty PDU. This happens because the
-            // byte reporting in the BSR is not accurate, due to RLC and/or
-            // BSR quantization.
-            if (m_ulDciTotalUsed == 0)
-            {
-                NS_LOG_WARN("No byte used for this UL-DCI, sending empty PDU");
-
-                NrMacSapProvider::TransmitPduParameters txParams;
-
-                txParams.pdu = Create<Packet>();
-                txParams.lcid = 3;
-                txParams.rnti = m_rnti;
-                txParams.layer = 0;
-                txParams.harqProcessId = m_ulDci->m_harqProcess;
-                txParams.componentCarrierId = GetBwpId();
-
-                DoTransmitPdu(txParams);
-            }
         }
     }
 }
@@ -972,7 +1003,7 @@ NrUeMac::TransmitRetx()
 }
 
 void
-NrUeMac::SendRetxData(uint32_t usefulTbs, uint32_t activeLcsRetx)
+NrUeMac::SendRetxData(uint32_t tbLimit, uint32_t activeLcsRetx)
 {
     NS_LOG_FUNCTION(this);
 
@@ -982,50 +1013,42 @@ NrUeMac::SendRetxData(uint32_t usefulTbs, uint32_t activeLcsRetx)
         return;
     }
 
-    uint32_t bytesPerLcId = usefulTbs / activeLcsRetx;
-
+    // Share what is left of the TB equally among the LCs with a RETX queue.
+    uint32_t lcsLeft = activeLcsRetx;
     for (auto& itBsr : m_ulBsrReceived)
     {
         auto& bsr = itBsr.second;
-
-        if (m_ulDciTotalUsed + bytesPerLcId <= usefulTbs)
+        if (bsr.retxQueueSize == 0)
         {
-            NrMacSapUser::TxOpportunityParameters txParams;
-            txParams.lcid = bsr.lcid;
-            txParams.rnti = m_rnti;
-            txParams.bytes = bytesPerLcId;
-            txParams.layer = 0;
-            txParams.harqId = m_ulDci->m_harqProcess;
-            txParams.componentCarrierId = GetBwpId();
-
-            NS_LOG_INFO("Notifying RLC of LCID " << +bsr.lcid
-                                                 << " of a TxOpp "
-                                                    "of "
-                                                 << bytesPerLcId << " B for a RETX PDU");
-
-            m_lcInfoMap.at(bsr.lcid).macSapUser->NotifyTxOpportunity(txParams);
-            // After this call, m_ulDciTotalUsed has been updated with the
-            // correct amount of bytes... but it is up to us in updating the BSR
-            // value, subtracting the amount of bytes transmitted
-
-            // We need to use std::min here because bytesPerLcId can be
-            // greater than bsr.txQueueSize because scheduler can assign
-            // more bytes than needed due to how TB size is computed.
-            bsr.retxQueueSize -= std::min(bytesPerLcId, bsr.retxQueueSize);
+            continue;
         }
-        else
+        const uint32_t room = (tbLimit - m_ulDciTotalUsed) / lcsLeft--;
+        const uint32_t bytes = TxOppFitting(bsr.retxQueueSize, room);
+        if (bytes < RLC_AM_MIN_TXOP_BYTES)
         {
-            NS_LOG_DEBUG("Something wrong with the calculation of overhead."
-                         "Active LCS Retx: "
-                         << activeLcsRetx << " assigned to this: " << bytesPerLcId
-                         << ", with TBS of " << m_ulDci->m_tbSize << " usefulTbs " << usefulTbs
-                         << " and total used " << m_ulDciTotalUsed);
+            NS_LOG_DEBUG("Only " << room << " B left for the RETX of LCID " << +bsr.lcid);
+            continue;
         }
+
+        NrMacSapUser::TxOpportunityParameters txParams;
+        txParams.lcid = bsr.lcid;
+        txParams.rnti = m_rnti;
+        txParams.bytes = bytes;
+        txParams.layer = 0;
+        txParams.harqId = m_ulDci->m_harqProcess;
+        txParams.componentCarrierId = GetBwpId();
+
+        NS_LOG_INFO("Notifying RLC of LCID " << +bsr.lcid << " of a TxOpp of " << bytes
+                                             << " B for a RETX PDU");
+
+        // Update the cached BSR first: RLC may report its new buffer from within the TxOpportunity.
+        bsr.retxQueueSize -= std::min(bytes, bsr.retxQueueSize);
+        m_lcInfoMap.at(bsr.lcid).macSapUser->NotifyTxOpportunity(txParams);
     }
 }
 
 void
-NrUeMac::SendTxData(uint32_t usefulTbs, uint32_t activeTx)
+NrUeMac::SendTxData(uint32_t tbLimit, uint32_t activeTx)
 {
     NS_LOG_FUNCTION(this);
 
@@ -1036,14 +1059,13 @@ NrUeMac::SendTxData(uint32_t usefulTbs, uint32_t activeTx)
     }
 
     constexpr uint8_t signalingLcid = 1;
-    constexpr uint32_t minTxOpBytes = 7;
     constexpr uint32_t rlcAmWorstCaseHeaderBytes = 4;
 
     // Apply shortest-job first policy to prioritize lcids with less data
-    while (m_ulDciTotalUsed < usefulTbs)
+    while (m_ulDciTotalUsed < tbLimit)
     {
-        uint32_t availableBytes = usefulTbs - m_ulDciTotalUsed;
-        if (availableBytes < minTxOpBytes)
+        uint32_t availableBytes = tbLimit - m_ulDciTotalUsed;
+        if (availableBytes < MinDataSubPduBytes())
         {
             NS_LOG_WARN("Not enough bytes available to send a TxPDU, skipping");
             break;
@@ -1092,10 +1114,11 @@ NrUeMac::SendTxData(uint32_t usefulTbs, uint32_t activeTx)
             break;
         }
 
-        // We need to allocate at least 7 bytes per LCID due to RLC limitations
-        // But we can allocate up to availableBytes
+        // We need to allocate at least RLC_AM_MIN_TXOP_BYTES per LCID due to RLC limitations,
+        // but at most what fits in availableBytes with the MAC subheader.
         uint32_t bytesPerLcId =
-            std::min(availableBytes, std::max<uint32_t>(smallestBufferBytes, minTxOpBytes));
+            TxOppFitting(std::max<uint32_t>(smallestBufferBytes, RLC_AM_MIN_TXOP_BYTES),
+                         availableBytes);
 
         auto& bsr = m_ulBsrReceived.at(smallestBufferBsrLcid);
         NS_LOG_DEBUG("LCID " << +bsr.lcid << " assigned a TxOp of " << bytesPerLcId << "/"
@@ -1114,15 +1137,10 @@ NrUeMac::SendTxData(uint32_t usefulTbs, uint32_t activeTx)
                                              << " of a TxOpp "
                                                 "of "
                                              << bytesPerLcId << " B for a TX PDU");
-        m_lcInfoMap.at(bsr.lcid).macSapUser->NotifyTxOpportunity(txParams);
-        // After this call, m_ulDciTotalUsed has been updated with the
-        // correct amount of bytes... but it is up to us in updating the BSR
-        // value, subtracting the amount of bytes transmitted
-
-        // We need to use std::min here because bytesPerLcId can be
-        // greater than bsr.txQueueSize because scheduler can assign
-        // more bytes than needed due to how TB size is computed.
+        // Update the cached BSR first: RLC may report its new buffer from within the
+        // TxOpportunity. bytesPerLcId can exceed the queue, as it is at least the RLC minimum.
         bsr.txQueueSize -= std::min(bytesPerLcId, bsr.txQueueSize);
+        m_lcInfoMap.at(bsr.lcid).macSapUser->NotifyTxOpportunity(txParams);
     }
 }
 
@@ -1154,66 +1172,50 @@ NrUeMac::SendNewData()
         }
     }
 
-    // STATUS admission already reserved the 5-byte SHORT_BSR.
+    // STATUS admission already reserved the SHORT_BSR.
     // Use the remaining space for retransmissions and new data.
-    NS_ASSERT_MSG(m_ulDciTotalUsed + 5 <= m_ulDci->m_tbSize,
-                  "The StatusPDU used " << m_ulDciTotalUsed
-                                        << " B, we don't have any for the SHORT_BSR.");
-    // reserve some data for the SHORT_BSR
-    uint32_t usefulTbs = m_ulDci->m_tbSize - m_ulDciTotalUsed - 5;
+    NS_ASSERT_MSG(m_ulDciTotalUsed + SHORT_BSR_BYTES <= m_ulDci->m_tbSize,
+                  "The UL TBS of " << m_ulDci->m_tbSize << " B cannot fit the " << SHORT_BSR_BYTES
+                                   << " B SHORT_BSR after " << m_ulDciTotalUsed
+                                   << " B of STATUS PDUs");
+    const uint32_t tbLimit = m_ulDci->m_tbSize - SHORT_BSR_BYTES;
 
-    // Now, we have 3 bytes of overhead for each subPDU. Let's try to serve all
-    // the queues with some RETX data.
-    if (activeLcsRetx == 0 && activeLcsTx == 0 && usefulTbs > 0)
+    if (activeLcsRetx == 0 && activeLcsTx == 0 && m_ulDciTotalUsed < tbLimit)
     {
-        NS_LOG_LOGIC("This UE tx opportunity will be wasted: " << usefulTbs << " bytes.");
+        NS_LOG_LOGIC("This UE tx opportunity will be wasted: " << tbLimit - m_ulDciTotalUsed
+                                                               << " bytes.");
     }
 
-    // this check is needed, because if there are no active LCS we should not
-    // enter into else and call the function SendRetxData
-    if (activeLcsRetx > 0 && usefulTbs > 0) // the queues with some RETX data.
+    if (activeLcsRetx > 0)
     {
-        // 10 because 3 bytes will go for MAC subheader
-        // and we should ensure to pass to RLC AM at least 7 bytes
-        if (activeLcsRetx * 10 > usefulTbs)
+        if (m_ulDciTotalUsed + activeLcsRetx * MinDataSubPduBytes() > tbLimit)
         {
             NS_LOG_DEBUG("The overhead for transmitting retx data is greater than the space for "
-                         "transmitting it."
-                         "Ignore the TBS of "
-                         << usefulTbs << " B.");
+                         "transmitting it. Ignore the "
+                         << tbLimit - m_ulDciTotalUsed << " B left.");
         }
         else
         {
-            usefulTbs -= activeLcsRetx * 3;
-            SendRetxData(usefulTbs, activeLcsRetx);
+            SendRetxData(tbLimit, activeLcsRetx);
         }
     }
 
-    // Now we have to update our useful TBS for the next transmission.
-    // Remember that m_ulDciTotalUsed keep count of data and overhead that we
-    // used till now.
-    NS_ASSERT_MSG(
-        m_ulDciTotalUsed + 5 <= m_ulDci->m_tbSize,
-        "The StatusPDU and RETX sending required all space, we don't have any for the SHORT_BSR.");
-    usefulTbs = m_ulDci->m_tbSize - m_ulDciTotalUsed - 5; // Update the usefulTbs.
+    NS_ASSERT_MSG(m_ulDciTotalUsed <= tbLimit,
+                  "The UL TBS of " << m_ulDci->m_tbSize << " B cannot fit the " << SHORT_BSR_BYTES
+                                   << " B SHORT_BSR after " << m_ulDciTotalUsed
+                                   << " B of STATUS and RETX PDUs");
 
-    // The last part is for the queues with some non-RETX data. If there is no space left,
-    // then nothing.
-    if (activeLcsTx > 0 && usefulTbs > 0) // the queues with some TX data.
+    if (activeLcsTx > 0)
     {
-        // 10 because 3 bytes will go for MAC subheader
-        // and we should ensure to pass to RLC AM at least 7 bytes
-        if (activeLcsTx * 10 > usefulTbs)
+        if (m_ulDciTotalUsed + activeLcsTx * MinDataSubPduBytes() > tbLimit)
         {
             NS_LOG_DEBUG("The overhead for transmitting new data is greater than the space for "
-                         "transmitting it."
-                         "Ignore the TBS of "
-                         << usefulTbs << " B.");
+                         "transmitting it. Ignore the "
+                         << tbLimit - m_ulDciTotalUsed << " B left.");
         }
         else
         {
-            usefulTbs -= activeLcsTx * 3;
-            SendTxData(usefulTbs, activeLcsTx);
+            SendTxData(tbLimit, activeLcsTx);
         }
     }
 
@@ -1237,10 +1239,8 @@ NrUeMac::SendNewStatusData()
 
         if (bsr.statusPduSize > 0)
         {
-            NrMacHeaderVs header;
-            header.SetSize(bsr.statusPduSize);
-            // Reserve the STATUS subheader and the existing 5-byte SHORT_BSR.
-            if (m_ulDciTotalUsed + bsr.statusPduSize + header.GetSerializedSize() + 5 <=
+            if (m_ulDciTotalUsed + bsr.statusPduSize + MacSubheaderBytes(bsr.statusPduSize) +
+                    SHORT_BSR_BYTES <=
                 m_ulDci->m_tbSize)
             {
                 NrMacSapUser::TxOpportunityParameters txParams;
@@ -1256,11 +1256,10 @@ NrUeMac::SendNewStatusData()
                                                         "of "
                                                      << bsr.statusPduSize << " B for a status PDU");
 
-                m_lcInfoMap.at(bsr.lcid).macSapUser->NotifyTxOpportunity(txParams);
-                // After this call, m_ulDciTotalUsed has been updated with the
-                // correct amount of bytes... but it is up to us in updating the BSR
-                // value, subtracting the amount of bytes transmitted
+                // Update the cached BSR first: RLC may report its new buffer from within the
+                // TxOpportunity.
                 bsr.statusPduSize = 0;
+                m_lcInfoMap.at(bsr.lcid).macSapUser->NotifyTxOpportunity(txParams);
             }
             else
             {

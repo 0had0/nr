@@ -435,7 +435,7 @@ class NR_EXPORT NrUeMac : public Object
     /**
      * @brief Send RETX data
      *
-     * @param usefulTbs TBS that we can use (data only)
+     * @param tbLimit Bytes of the TB that sub-PDUs may fill, up to the reserved SHORT_BSR
      * @param activeRetx number of active LCID with some data in the retxQueue
      *
      * The method will try to use the allocated resources by the UL_DCI to send
@@ -443,12 +443,12 @@ class NR_EXPORT NrUeMac : public Object
      *
      * @todo the code is similar to SendTxData, maybe they can be unified.
      */
-    void SendRetxData(uint32_t usefulTbs, uint32_t activeRetx);
+    void SendRetxData(uint32_t tbLimit, uint32_t activeRetx);
 
     /**
      * @brief Send TX data
      *
-     * @param usefulTbs TBS that we can use (data only)
+     * @param tbLimit Bytes of the TB that sub-PDUs may fill, up to the reserved SHORT_BSR
      * @param activeTx number of active LCID with some data in the txQueue
      *
      * The method will try to use the allocated resources by the UL_DCI to send
@@ -456,7 +456,7 @@ class NR_EXPORT NrUeMac : public Object
      *
      * @todo the code is similar to SendReTxData, maybe they can be unified.
      */
-    void SendTxData(uint32_t usefulTbs, uint32_t activeTx);
+    void SendTxData(uint32_t tbLimit, uint32_t activeTx);
 
   private:
     NrUeCmacSapUser* m_cmacSapUser{nullptr};
