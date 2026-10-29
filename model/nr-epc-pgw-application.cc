@@ -410,9 +410,19 @@ NrEpcPgwApplication::DoRecvCreateSessionRequest(Ptr<Packet> packet)
             // Bind the egress device declared for this session to its tunnel, so an
             // uplink packet reaches the device without being inspected.
             auto sessionIt = m_unstructuredSessionByUe.find({imsi, flowContext.qfi});
-            NS_ASSERT_MSG(sessionIt != m_unstructuredSessionByUe.end(),
-                          "no egress device for the unstructured session of IMSI "
-                              << imsi << " QFI " << +flowContext.qfi);
+            if (sessionIt == m_unstructuredSessionByUe.end() &&
+                !m_unstructuredSessionRequestCallback.IsNull())
+            {
+                // a flow activated in another network, e.g., the home network of a UE roaming
+                // with local breakout: the session gets an egress device in this network
+                m_unstructuredSessionRequestCallback(imsi,
+                                                     flowContext.qfi,
+                                                     flowContext.rule->GetProtocolNumber());
+                sessionIt = m_unstructuredSessionByUe.find({imsi, flowContext.qfi});
+            }
+            NS_ABORT_MSG_IF(sessionIt == m_unstructuredSessionByUe.end(),
+                            "no egress device for the unstructured session of IMSI "
+                                << imsi << " QFI " << +flowContext.qfi);
             m_unstructuredSessionByTeid[teid] = sessionIt->second;
         }
 
@@ -615,6 +625,19 @@ NrEpcPgwApplication::DoRecvDeleteSessionRequest(Ptr<Packet> packet, Ipv4Address 
     if (ueit->second->GetSgwAddr() == sgwAddr)
     {
         NS_LOG_INFO("PGW removing the flows of IMSI " << imsi);
+        // the tunnels of the unstructured sessions go with the flows, but their egress devices
+        // stay declared, for the sessions created when the UE attaches again
+        for (const auto& [key, session] : m_unstructuredSessionByUe)
+        {
+            if (key.first != imsi)
+            {
+                continue;
+            }
+            if (auto teid = ueit->second->GetTeidByQfi(key.second); teid.has_value())
+            {
+                m_unstructuredSessionByTeid.erase(teid.value());
+            }
+        }
         ueit->second->RemoveFlows();
     }
 
@@ -691,6 +714,14 @@ NrEpcPgwApplication::AddUnstructuredSession(uint64_t imsi,
     m_unstructuredSessionByUe[{imsi, qfi}] = {device, protocolNumber};
     device->SetSendCallback(
         MakeCallback(&NrEpcPgwApplication::RecvFromUnstructuredDevice, this).Bind(imsi, qfi));
+}
+
+void
+NrEpcPgwApplication::SetUnstructuredSessionRequestCallback(
+    Callback<void, uint64_t, uint8_t, uint16_t> cb)
+{
+    NS_LOG_FUNCTION(this);
+    m_unstructuredSessionRequestCallback = cb;
 }
 
 void

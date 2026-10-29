@@ -210,6 +210,8 @@ NrNoBackhaulEpcHelper::NotifyConstructionCompleted()
     m_sgw->AddApplication(m_sgwApp);
     m_sgwApp->AddPgw(pgwS5Address);
     m_pgwApp->AddSgw(sgwS5Address);
+    m_pgwApp->SetUnstructuredSessionRequestCallback(
+        MakeCallback(&NrNoBackhaulEpcHelper::CreateUnstructuredSessionDevice, this));
 
     // Create S11 link between MME and SGW
     PointToPointHelper s11P2ph;
@@ -441,8 +443,14 @@ NrNoBackhaulEpcHelper::UeAttached(uint64_t imsi, NrEpcMmeApplication* home)
     // if it has none
     if (interface < 0 && interface6 < 0)
     {
-        // not an NR UE device with an address (e.g., in the S1-U tests): its address is set by
-        // its owner
+        // a UE with no IP stack, whose sessions are unstructured, roaming with local breakout:
+        // its sessions are in the PGW of this network
+        if (ueDevice && home && !m_pgwApp->HasUe(imsi))
+        {
+            m_pgwApp->AddUe(imsi);
+        }
+        // otherwise, not an NR UE device with an address (e.g., in the S1-U tests): its address
+        // is set by its owner
         return Ipv4Address();
     }
     if (!m_pgwApp->HasUe(imsi))
@@ -624,17 +632,29 @@ NrNoBackhaulEpcHelper::ActivateUnstructuredQosFlow(Ptr<NetDevice> ueDevice,
     uint8_t qosFlowId = m_mmeApp->AddFlow(imsi, rule, flow);
     rule->SetQfi(qosFlowId);
 
-    Ptr<VirtualNetDevice> sessionDevice = CreateObject<VirtualNetDevice>();
-    // allow jumbo packets
-    sessionDevice->SetAttribute("Mtu", UintegerValue(30000));
-    sessionDevice->SetAddress(Mac48Address::Allocate());
-    m_pgw->AddDevice(sessionDevice);
-    m_unstructuredSessionDevices[{imsi, qosFlowId}] = sessionDevice;
-    m_pgwApp->AddUnstructuredSession(imsi, qosFlowId, protocolNumber, sessionDevice);
+    CreateUnstructuredSessionDevice(imsi, qosFlowId, protocolNumber);
 
     DoActivateQosFlowForUe(ueDevice, rule, flow);
 
     return qosFlowId;
+}
+
+void
+NrNoBackhaulEpcHelper::CreateUnstructuredSessionDevice(uint64_t imsi,
+                                                       uint8_t qfi,
+                                                       uint16_t protocolNumber)
+{
+    NS_LOG_FUNCTION(this << imsi << +qfi << protocolNumber);
+    auto& sessionDevice = m_unstructuredSessionDevices[{imsi, qfi}];
+    if (!sessionDevice)
+    {
+        sessionDevice = CreateObject<VirtualNetDevice>();
+        // allow jumbo packets
+        sessionDevice->SetAttribute("Mtu", UintegerValue(30000));
+        sessionDevice->SetAddress(Mac48Address::Allocate());
+        m_pgw->AddDevice(sessionDevice);
+    }
+    m_pgwApp->AddUnstructuredSession(imsi, qfi, protocolNumber, sessionDevice);
 }
 
 Ptr<VirtualNetDevice>

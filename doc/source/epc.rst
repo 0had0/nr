@@ -399,9 +399,10 @@ two points, with no change to the control-plane identifiers above.
 At the **PGW**, each unstructured session is given its own ``VirtualNetDevice``, analogous to an N6
 point-to-point tunnel. Whatever is written to that device is sent to the UE of the session, and
 whatever the UE sends on the session comes out of it, with no header inspection in either direction.
-The device is bound to the session TEID when the flow is established, so the downlink is routed by
-TEID (``m_unstructuredSessionByTeid``) rather than by address, and the uplink leaves through the
-device bound to the flow (``m_unstructuredSessionByUe``). The egress device is obtained from the EPC
+The device is bound to the session TEID when the flow is established, so the uplink is delivered to
+the device of its TEID (``m_unstructuredSessionByTeid``) rather than routed by address, and the
+downlink written to the device is sent on the tunnel of the flow it is bound to
+(``m_unstructuredSessionByUe``). The egress device is obtained from the EPC
 helper with ``GetUnstructuredSessionDevice(imsi, qfi)``.
 
 At the **gNB**, ``NrEpcGnbApplication`` gains a third packet socket, beside the IPv4 and IPv6 ones,
@@ -413,6 +414,23 @@ The session type travels in the QoS rule over GTP-C, so the PGW binds the egress
 CreateSession exchange that establishes an IP flow. Activation is done with
 ``NrHelper::ActivateUnstructuredQosFlow(ueDevice, protocolNumber, flow)``, which needs no IP address
 on the UE.
+
+Like the other QoS flows, an unstructured session is activated in the home network of the UE, and
+its first egress device is on the PGW of that network. When the UE roams (see `Several core
+networks and roaming`_):
+
+* with home-routed roaming, the session stays in the PGW of the home network, so the same egress
+  device carries it in every network the UE visits;
+* with local breakout, the session is in the PGW of the network serving the UE. When the UE
+  attaches in a visited network, the PGW of that network gives the session an egress device of its
+  own, obtained with ``GetUnstructuredSessionDevice(imsi, qfi)`` on the EPC helper of that network,
+  and keeps it for the next attachments of the UE there.
+
+The egress device of a session therefore changes with the serving network under local breakout: an
+application bound to the device of the home network receives nothing while the UE is roaming, and
+the application of the visited network has to be bound to a device that exists only after the UE
+has attached there. Home-routed roaming keeps a single egress device, and is the configuration to
+use for a session that has to keep its endpoint across networks.
 
 Control-plane procedures
 ========================

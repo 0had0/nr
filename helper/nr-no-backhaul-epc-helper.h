@@ -138,6 +138,16 @@ class NR_EXPORT NrNoBackhaulEpcHelper : public NrRanEpcHelper
     Ipv4Address UeAttached(uint64_t imsi, NrEpcMmeApplication* home);
 
     /**
+     * Create the egress device of an unstructured PDU session on the PGW, and declare it to the
+     * PGW application. The device is kept for the session, if it already exists.
+     *
+     * @param imsi the IMSI of the UE
+     * @param qfi the QFI of the session
+     * @param protocolNumber the network layer protocol carried by the session
+     */
+    void CreateUnstructuredSessionDevice(uint64_t imsi, uint8_t qfi, uint16_t protocolNumber);
+
+    /**
      * Set the IPv4 address of a UE, replacing its address and default route of another network.
      *
      * @param ueIpv4 the IPv4 stack of the UE

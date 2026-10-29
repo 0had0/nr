@@ -207,6 +207,17 @@ class NR_EXPORT NrEpcPgwApplication : public Application
                                 Ptr<VirtualNetDevice> device);
 
     /**
+     * Set the callback invoked when a session is created for an unstructured flow that has no
+     * egress device on this PGW yet (e.g., the flow of a UE roaming with local breakout, whose
+     * session is in the PGW of the visited network), so that its owner creates the device and
+     * declares it with AddUnstructuredSession().
+     *
+     * @param cb the callback, with the IMSI of the UE, the QFI and the network layer protocol of
+     * the session
+     */
+    void SetUnstructuredSessionRequestCallback(Callback<void, uint64_t, uint8_t, uint16_t> cb);
+
+    /**
      * TracedCallback signature for data Packet reception event.
      *
      * @param [in] packet The data packet sent from the internet.
@@ -458,6 +469,9 @@ class NR_EXPORT NrEpcPgwApplication : public Application
      * An uplink packet is delivered to the device of its tunnel, with no inspection.
      */
     std::map<uint32_t, UnstructuredSession> m_unstructuredSessionByTeid;
+
+    /// callback creating the egress device of an unstructured session that has none
+    Callback<void, uint64_t, uint8_t, uint16_t> m_unstructuredSessionRequestCallback;
 
     /**
      * UDP port to be used for GTP-U
