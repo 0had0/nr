@@ -37,6 +37,16 @@ foreach(
   )
 endforeach()
 
+if(${ENABLE_EMU})
+  build_lib_example(
+    NAME nr-external-core-roaming
+    SOURCE_FILES nr-external-core-roaming.cc
+    LIBRARIES_TO_LINK ${libnr}
+                      ${libfd-net-device}
+                      ${libinternet-apps}
+  )
+endif()
+
 check_deps(
   nr_sionna_deps
   PYTHON_PACKAGES
