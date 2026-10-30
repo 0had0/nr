@@ -572,6 +572,7 @@ set(test_sources
     test/nr-test-handover-target.cc
     test/nr-test-handover-scenarios.cc
     test/nr-test-cell-individual-offset.cc
+    test/nr-test-fh-control.cc
     test/nr-test-cell-selection-with-rlf.cc
     test/nr-test-attach-window.cc
     test/nr-test-random-direction-disc-2d-mobility.cc

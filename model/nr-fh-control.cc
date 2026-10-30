@@ -339,7 +339,7 @@ NrFhControl::DoUpdateActiveUesMap(
         NS_LOG_INFO("Cell: " << m_physicalCellId << " We got called for Update for bwpId: " << bwpId
                              << " RNTI: " << rnti);
 
-        uint16_t antennaPorts = m_fhPhySapUser.at(params.m_bwpId)->GetNumAntennaPorts();
+        uint16_t antennaPorts = m_fhPhySapUser.at(bwpId)->GetNumAntennaPorts();
 
         // Create/Update FH DL Throughput per BWP
         FhThrParams fhThrparams = {bwpId,
@@ -371,7 +371,8 @@ NrFhControl::DoUpdateActiveUesMap(
         if (alloc.m_dci->m_ndi == 0) // retx
         {
             NS_LOG_DEBUG("Retransmission, update only m_activeHarqUesPerBwp");
-            if (m_activeHarqUesPerBwp.find(rnti) != m_activeHarqUesPerBwp.end())
+            auto harqIt = m_activeHarqUesPerBwp.find(bwpId);
+            if (harqIt != m_activeHarqUesPerBwp.end() && harqIt->second.contains(rnti))
             {
                 m_activeHarqUesPerBwp.at(bwpId).erase(rnti);
                 NS_LOG_DEBUG("Update m_activeHarqBwps map for bwpId: "
@@ -432,7 +433,9 @@ NrFhControl::DoUpdateActiveUesMap(
 uint16_t
 NrFhControl::GetNumberActiveUes(uint16_t bwpId) const
 {
-    return m_activeUesPerBwp.at(bwpId).size();
+    // A BWP with only HARQ UEs has no entry in m_activeUesPerBwp
+    auto it = m_activeUesPerBwp.find(bwpId);
+    return it == m_activeUesPerBwp.end() ? 0 : it->second.size();
 }
 
 uint16_t
@@ -474,7 +477,7 @@ NrFhControl::DoGetDoesAllocationFit(uint16_t bwpId,
         numOfActiveBwps++;
     }
 
-    uint16_t antennaPorts = m_fhPhySapUser.at(params.m_bwpId)->GetNumAntennaPorts();
+    uint16_t antennaPorts = m_fhPhySapUser.at(bwpId)->GetNumAntennaPorts();
 
     FhThrParams fhThrparams = {
         bwpId,
@@ -544,7 +547,7 @@ NrFhControl::DoGetMaxMcsAssignable(uint16_t bwpId, uint32_t reg, uint32_t rnti, 
                     "Not enough fronthaul capacity to send intra-PHY split overhead");
 
     auto num = static_cast<uint32_t>(availableCapacity * 1e6 * slotLength.GetSeconds() -
-                                     Kp * (m_overheadDyn - overheadMac - (12 * 2 * 10)));
+                                     Kp * (m_overheadDyn + overheadMac + (12 * 2 * 10)));
     if (Kp == 0)
     {
         return 0;
@@ -602,7 +605,7 @@ NrFhControl::DoGetMaxRegAssignable(uint16_t bwpId, uint32_t mcs, uint32_t rnti, 
                     "Not enough fronthaul capacity to send intra-PHY split overhead");
 
     auto num = static_cast<uint32_t>(availableCapacity * 1e6 * slotLength.GetSeconds() -
-                                     Kp * (overheadDyn - overheadMac - (12 * 2 * 10)));
+                                     Kp * (overheadDyn + overheadMac + (12 * 2 * 10)));
     if (Kp == 0)
     {
         return 0;
@@ -634,7 +637,7 @@ NrFhControl::DoUpdateTracesBasedOnDroppedData(uint16_t bwpId,
 
     // update FH trace and AI trace
     NS_LOG_DEBUG("Update Traces based on Dropped Data");
-    uint16_t antennaPorts = m_fhPhySapUser.at(params.m_bwpId)->GetNumAntennaPorts();
+    uint16_t antennaPorts = m_fhPhySapUser.at(bwpId)->GetNumAntennaPorts();
     // bwpId not in the map
     FhThrParams fhThrparams = {bwpId, mcs, (numRbs * nSymb), dlRank, nSymb, antennaPorts};
     if (m_reqFhDlThrTracedValuePerBwp.find(bwpId) == m_reqFhDlThrTracedValuePerBwp.end())

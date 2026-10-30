@@ -341,6 +341,21 @@ HARQ processes and buffers, and checks the DCIs of the slot:
 - New UL data is spread over the free RBGs of two retransmissions of 4 and 6 symbols in a beam, each UE getting a transport block that carries its data, and a UE whose data fits in neither keeps symbols of its own.
 - DL retransmissions are reshaped as expected when ``ConsolidateHarqRetx`` is enabled.
 
+Test for fronthaul control
+==========================
+
+Test suite ``nr-test-fh-control`` checks how ``NrFhControl`` shares the fronthaul
+capacity of a cell in DL. Each case drives ``NrFhControl`` directly through its scheduler
+SAP, with stub PHY and scheduler SAP users, numerology 0, MCS Table 2 and 1 RB per RBG,
+so that the expected fronthaul throughput of each allocation is computed by hand:
+
+- A BWP whose only UE waits for a HARQ retransmission stops being active once the retransmission is scheduled, so the other BWP gets the whole capacity again.
+- A BWP with a UE that has both new data and a HARQ retransmission stays active until both are scheduled.
+- The maximum REGs and MCS given to the ``OptimizeRBs`` and ``OptimizeMcs`` methods subtract the per-UE overhead from the capacity, once per active UE.
+- With split 7.2, when every active UE gets the maximum REGs or MCS, all the allocations fit in the capacity, for 1 and 3 UEs and every modulation order.
+- With split 7.1, the fronthaul throughput of an allocation uses the antenna ports of its own BWP.
+- The maximum REGs of a BWP that has only HARQ UEs is 0.
+
 RRC test
 ========
 

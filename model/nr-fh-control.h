@@ -216,8 +216,6 @@ class NR_EXPORT NrFhControl : public Object
         }
     };
 
-    FhThrParams params{0, 0, 0, 0, 0, 0};
-
     /**
      * @brief Get the number of antenna ports.
      * @return the number of antenna ports configured in the PHY
