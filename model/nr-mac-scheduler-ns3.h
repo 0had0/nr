@@ -340,35 +340,34 @@ class NR_EXPORT NrMacSchedulerNs3 : public NrMacScheduler
         FTResources; //!< Represent an amount of RBG/symbols that can be, or is, assigned
 
     void DoCschedCellConfigReq(
-        const NrMacCschedSapProvider::CschedCellConfigReqParameters& params) override;
+        const NrMacCschedSapProvider::CschedCellConfigReqParameters& params) final;
     void DoCschedUeConfigReq(
-        const NrMacCschedSapProvider::CschedUeConfigReqParameters& params) override;
+        const NrMacCschedSapProvider::CschedUeConfigReqParameters& params) final;
     void DoSchedDlRlcBufferReq(
-        const NrMacSchedSapProvider::SchedDlRlcBufferReqParameters& params) override;
+        const NrMacSchedSapProvider::SchedDlRlcBufferReqParameters& params) final;
     void DoSchedUlMacCtrlInfoReq(
-        const NrMacSchedSapProvider::SchedUlMacCtrlInfoReqParameters& params) override;
+        const NrMacSchedSapProvider::SchedUlMacCtrlInfoReqParameters& params) final;
     void DoSchedDlCqiInfoReq(
-        const NrMacSchedSapProvider::SchedDlCqiInfoReqParameters& params) override;
+        const NrMacSchedSapProvider::SchedDlCqiInfoReqParameters& params) final;
     void DoSchedUlCqiInfoReq(
-        const NrMacSchedSapProvider::SchedUlCqiInfoReqParameters& params) override;
+        const NrMacSchedSapProvider::SchedUlCqiInfoReqParameters& params) final;
     void DoCschedUeReleaseReq(
-        const NrMacCschedSapProvider::CschedUeReleaseReqParameters& params) override;
+        const NrMacCschedSapProvider::CschedUeReleaseReqParameters& params) final;
     void DoCschedLcConfigReq(
-        const NrMacCschedSapProvider::CschedLcConfigReqParameters& params) override;
+        const NrMacCschedSapProvider::CschedLcConfigReqParameters& params) final;
     void DoCschedLcReleaseReq(
-        const NrMacCschedSapProvider::CschedLcReleaseReqParameters& params) override;
+        const NrMacCschedSapProvider::CschedLcReleaseReqParameters& params) final;
     void DoSchedDlTriggerReq(
-        const NrMacSchedSapProvider::SchedDlTriggerReqParameters& params) override;
+        const NrMacSchedSapProvider::SchedDlTriggerReqParameters& params) final;
     void DoSchedUlTriggerReq(
-        const NrMacSchedSapProvider::SchedUlTriggerReqParameters& params) override;
-    void DoSchedUlSrInfoReq(
-        const NrMacSchedSapProvider::SchedUlSrInfoReqParameters& params) override;
-    void DoSchedSetMcs(uint32_t mcs) override;
+        const NrMacSchedSapProvider::SchedUlTriggerReqParameters& params) final;
+    void DoSchedUlSrInfoReq(const NrMacSchedSapProvider::SchedUlSrInfoReqParameters& params) final;
+    void DoSchedSetMcs(uint32_t mcs) final;
     void DoSchedDlRachInfoReq(
-        const NrMacSchedSapProvider::SchedDlRachInfoReqParameters& params) override;
-    uint8_t GetDlCtrlSyms() const override;
-    uint8_t GetUlCtrlSyms() const override;
-    bool IsMaxSrsReached() const override;
+        const NrMacSchedSapProvider::SchedDlRachInfoReqParameters& params) final;
+    uint8_t GetDlCtrlSyms() const final;
+    uint8_t GetUlCtrlSyms() const final;
+    bool IsMaxSrsReached() const final;
 
     /**
      * @brief Assign a fixed random variable stream number to the random variables

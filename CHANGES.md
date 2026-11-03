@@ -77,6 +77,7 @@ us a note on ns-developers mailing list.
 - Add ``NrEpcS1apSapGnb::ErabToBeSetupItem::gnbTeid``, the downlink TEID of a QoS flow at the gNB. When it is not set (zero), the downlink uses the same TEID as the uplink (``sgwTeid``), as with the built-in core network.
 - Add support for GTP-U extension headers in ``NrGtpuHeader`` (``AddExtensionHeader()``, ``GetExtensionHeaders()``), and for the PDU Session Container extension header (``SetPduSessionContainer()``, ``HasPduSessionContainer()``, ``GetPduType()``, ``GetQfi()``), which carries the QFI on the N3 interface.
 - ``NrGtpuHeader::SetExtensionHeaderFlag()`` and ``NrGtpuHeader::SetNextExtensionType()`` are removed: the E flag and the next extension header type are now derived from the extension headers added with ``AddExtensionHeader()``.
+- The following ``NrMacSchedulerNs3`` methods are now ``final``, as they depend on its private state and cannot be meaningfully overridden: ``DoCschedCellConfigReq()``, ``DoCschedUeConfigReq()``, ``DoSchedDlRlcBufferReq()``, ``DoSchedUlMacCtrlInfoReq()``, ``DoSchedDlCqiInfoReq()``, ``DoSchedUlCqiInfoReq()``, ``DoCschedUeReleaseReq()``, ``DoCschedLcConfigReq()``, ``DoCschedLcReleaseReq()``, ``DoSchedDlTriggerReq()``, ``DoSchedUlTriggerReq()``, ``DoSchedUlSrInfoReq()``, ``DoSchedSetMcs()``, ``DoSchedDlRachInfoReq()``, ``GetDlCtrlSyms()``, ``GetUlCtrlSyms()`` and ``IsMaxSrsReached()``. Schedulers that derive from ``NrMacSchedulerNs3`` and override any of them no longer compile.
 
 ### Changed Behavior
 
