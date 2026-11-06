@@ -893,7 +893,7 @@ NrCsiTestCase::DoRun()
 
     // Update output file for each additional test case
     std::ofstream ofs;
-    ofs.open("nr-csi-test-output.json", std::ofstream::out);
+    ofs.open(GetParent()->GetName() + "-output.json", std::ofstream::out);
     ofs << outputJson.dump(2);
     ofs.close();
 
@@ -1358,18 +1358,29 @@ NrCsiRsPropagationDelayTestCase::DoRun()
     Simulator::Destroy();
 }
 
-NrCsiTestSuite::NrCsiTestSuite()
-    : TestSuite("nr-test-csi")
+namespace
 {
-    // Interference patterns
-    std::vector<bool> wbInterf = std::vector<bool>(106, true);
-    std::vector<bool> hbInterf = std::vector<bool>(106, true);
-    std::fill(hbInterf.begin(), hbInterf.begin() + 16 * 4, false);
-    std::vector<bool> lbInterf = std::vector<bool>(106, true);
-    std::fill(lbInterf.rbegin(), lbInterf.rbegin() + 16 * 4, false);
+using Duration = TestCase::Duration;
+
+// Interference patterns
+const std::vector<bool> wbInterf(106, true);
+const std::vector<bool> hbInterf = [] {
+    std::vector<bool> pattern(106, true);
+    std::fill(pattern.begin(), pattern.begin() + 16 * 4, false);
+    return pattern;
+}();
+const std::vector<bool> lbInterf = [] {
+    std::vector<bool> pattern(106, true);
+    std::fill(pattern.rbegin(), pattern.rbegin() + 16 * 4, false);
+    return pattern;
+}();
+
+std::vector<NrCsiTestCase::NrCsiTestCaseParams>
+GetCsiRsImParams()
+{
     // clang-format off
     using MCS = NrMacSchedulerUeInfo::McsCsiSource;
-    std::vector<NrCsiTestCase::NrCsiTestCaseParams> params {
+    return {
         ////  |---D1---|
         //// UE0 GNB0 UE1 GNB1
         //// |-D2-|
@@ -1399,7 +1410,16 @@ NrCsiTestSuite::NrCsiTestSuite()
         {  Duration::EXTENSIVE, 200, 20, {wbInterf},  true, 1, 70000, true, CQI_CSI_RS | CQI_CSI_IM, MCS::AVG_MCS},
         {  Duration::EXTENSIVE, 200, 20, {hbInterf},  true, 1, 70000, true, CQI_CSI_RS | CQI_CSI_IM, MCS::AVG_MCS},
         {      Duration::QUICK, 200, 20, {lbInterf},  true, 1, 70000, true, CQI_CSI_RS | CQI_CSI_IM, MCS::AVG_MCS},
+    };
+    // clang-format on
+}
 
+std::vector<NrCsiTestCase::NrCsiTestCaseParams>
+GetPdschParams()
+{
+    // clang-format off
+    using MCS = NrMacSchedulerUeInfo::McsCsiSource;
+    return {
         // Test with PDSCH MIMO
         {  Duration::EXTENSIVE, 200, 20, {wbInterf},  true, 1, 70000, true, CQI_PDSCH_MIMO, MCS::AVG_MCS},
         {      Duration::QUICK, 200, 20, {hbInterf},  true, 1, 70000, true, CQI_PDSCH_MIMO, MCS::AVG_MCS},
@@ -1411,7 +1431,16 @@ NrCsiTestSuite::NrCsiTestSuite()
         {  Duration::EXTENSIVE, 200, 20, {wbInterf},  true, 1, 70000, false, CQI_PDSCH_SISO, MCS::AVG_MCS},
         {  Duration::EXTENSIVE, 200, 20, {hbInterf},  true, 1, 70000, false, CQI_PDSCH_SISO, MCS::AVG_MCS},
         {      Duration::QUICK, 200, 20, {lbInterf},  true, 1, 70000, false, CQI_PDSCH_SISO, MCS::AVG_MCS},
+    };
+    // clang-format on
+}
 
+std::vector<NrCsiTestCase::NrCsiTestCaseParams>
+GetWidebandParams()
+{
+    // clang-format off
+    using MCS = NrMacSchedulerUeInfo::McsCsiSource;
+    return {
         // Test legacy scheduling with wideband CQI/MCS without clamping
         {  Duration::EXTENSIVE, 200, 20,         {}, false, 1, 70000, true, CQI_CSI_RS | CQI_CSI_IM, MCS::WIDEBAND_MCS},
         {  Duration::EXTENSIVE, 200, 20, {wbInterf}, false, 1, 70000, true, CQI_CSI_RS | CQI_CSI_IM, MCS::WIDEBAND_MCS},
@@ -1425,18 +1454,33 @@ NrCsiTestSuite::NrCsiTestSuite()
         {      Duration::QUICK, 200, 20, {lbInterf},  true, 1, 70000, true, CQI_CSI_RS | CQI_CSI_IM, MCS::WIDEBAND_MCS},
     };
     // clang-format on
+}
 
-    for (auto& param : params)
+} // namespace
+
+NrCsiTestSuite::NrCsiTestSuite(const std::string& name,
+                               const std::vector<NrCsiTestCase::NrCsiTestCaseParams>& params)
+    : TestSuite(name)
+{
+    for (const auto& param : params)
     {
         AddTestCase(new NrCsiTestCase(param), param.m_duration);
     }
+}
+
+NrCsiMobilityTestSuite::NrCsiMobilityTestSuite()
+    : TestSuite("nr-test-csi-mobility")
+{
     AddTestCase(new NrCsiRsAfterRadioLinkFailureTestCase(), Duration::QUICK);
     AddTestCase(new NrCsiRsAfterCellChangeTestCase(true), Duration::QUICK);
     AddTestCase(new NrCsiRsAfterCellChangeTestCase(false), Duration::QUICK);
     AddTestCase(new NrCsiRsPropagationDelayTestCase(), Duration::QUICK);
 }
 
-// Allocate an instance of this TestSuite
-static NrCsiTestSuite g_nrCsiTestSuite;
+// Allocate an instance of each TestSuite
+static NrCsiTestSuite g_nrCsiRsImTestSuite("nr-test-csi-rs-im", GetCsiRsImParams());
+static NrCsiTestSuite g_nrCsiPdschTestSuite("nr-test-csi-pdsch", GetPdschParams());
+static NrCsiTestSuite g_nrCsiWidebandTestSuite("nr-test-csi-wideband", GetWidebandParams());
+static NrCsiMobilityTestSuite g_nrCsiMobilityTestSuite;
 
 } // namespace ns3

@@ -180,13 +180,30 @@ operator<(const NrCsiTestCase::CsiState& a, const NrCsiTestCase::CsiState& b)
 
 /**
  * @ingroup test
- * The test suite that runs different test cases to test NrSpectrumPhy.
+ * A test suite that runs a group of CSI feedback configurations.
  */
 class NrCsiTestSuite : public TestSuite
 {
   public:
+    /**
+     * Constructor.
+     *
+     * @param name The name of the test suite.
+     * @param params The test case configurations to run.
+     */
+    NrCsiTestSuite(const std::string& name,
+                   const std::vector<NrCsiTestCase::NrCsiTestCaseParams>& params);
+};
+
+/**
+ * @ingroup test
+ * The test suite for CSI-RS after a radio link failure, cell change or with propagation delay.
+ */
+class NrCsiMobilityTestSuite : public TestSuite
+{
+  public:
     /** Constructor. */
-    NrCsiTestSuite();
+    NrCsiMobilityTestSuite();
 };
 
 } // namespace ns3

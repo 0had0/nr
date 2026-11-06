@@ -4,17 +4,24 @@
 #
 # SPDX-License-Identifier: GPL-2.0-only
 
+import glob
 import json
 import statistics
 from collections import deque
 
 from matplotlib import pyplot as plt
 
-try:
-    with open("nr-csi-test-output.json", "r") as f:
-        contents = json.load(f)
-except:
-    print("Failed to open nr-csi-test-output.json. Run `test-runner --suite=nr-csi-test` first.")
+contents = {}
+for path in glob.glob("nr-test-csi-*-output.json"):
+    with open(path, "r") as f:
+        for testCase, results in json.load(f).items():
+            # Each file lists all test cases, but only has results for those of its suite
+            if testCase not in contents or results["csiFb"] is not None:
+                contents[testCase] = results
+if not contents:
+    print(
+        "Failed to find nr-test-csi-*-output.json. Run `test-runner --suite=nr-test-csi-rs-im` first."
+    )
     exit(1)
 
 

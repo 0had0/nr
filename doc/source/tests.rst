@@ -274,7 +274,7 @@ https://cttc-lena.gitlab.io/nr/html/nr-test-ri-pmi_8cc.html
 Test for CSI feedback with MIMO
 ===============================
 
-Test case called ``nr-test-csi`` is a system test used to verify the CSI feedback works correctly without and with interference.
+The ``nr-test-csi-rs-im``, ``nr-test-csi-pdsch``, ``nr-test-csi-wideband`` and ``nr-test-csi-mobility`` test suites are system tests used to verify the CSI feedback works correctly without and with interference.
 The test is setup with a main gNB-UE pair. The main UE is the measuring UE, that is used to collect the metrics used by the test.
 In case we are testing with interference, a secondary gNB-UE pair is added. The interfered band of the secondary gNB-UE pair is
 defined by an interference pattern, implemented using a notching mask to model the frequency domain and a ON-OFF application
@@ -299,7 +299,7 @@ We also measure the main UE throughput using the wide-band and sub-band CQI sche
 (see more details in :ref:`Scheduler`).
 
 The rank, MCS, mean throughput throughout the simulation, the mean throughput over a sliding window,
-and sub-band CQI reports over time are collected by the test-suite and stored into a JSON file for easy processing.
+and sub-band CQI reports over time are collected by the test-suite and stored into a JSON file per suite for easy processing.
 A companion script, ``nr-test-csi-plot.py``, can plot all the measurements for all the test cases, allowing for
 the visual inspection of the behavior of the system during the simulation.
 
