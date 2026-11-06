@@ -374,6 +374,9 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
     }
 
     auto gnbTxPower = DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(0)->GetTxPower();
+    // Compute the received power of each UE panel and gNB beam. The strongest beam of this gNB
+    // sets its RSRP and best beam, and the strongest of all scanned gNBs sets the UE active panel.
+    double localMax = 0.0;
     for (size_t k = 0; k < antennas.ueArrayModel.size(); k++)
     {
         for (size_t j = 0; j < m_rowBeamAngles.size(); j++)
@@ -398,10 +401,14 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
                     continue;
                 }
                 auto eng = gnbTxPower * ComputeRxPsd(rxParam);
+                if (eng > localMax)
+                {
+                    localMax = eng;
+                    bfAngles = {m_rowBeamAngles[j], m_colBeamAngles[i]};
+                }
                 if (eng > lsps.maxPsdFound)
                 {
                     lsps.maxPsdFound = eng;
-                    bfAngles = {m_rowBeamAngles[j], m_colBeamAngles[i]};
                     activePanelIndex =
                         k; // active panel has to be update to K as better beam has found
                 }
@@ -412,7 +419,7 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
         chParams.pathLossModel->CalcRxPower(0, mobility.gnbMobility, mobility.ueMobility);
     m_bestBfVectors.push_back(bfAngles);
     SetUeActivePanel(activePanelIndex);
-    return pow(10.0, attenuation / 10.0) * lsps.maxPsdFound;
+    return pow(10.0, attenuation / 10.0) * localMax;
 }
 
 double
