@@ -13,7 +13,7 @@
  * injects an RRC Connection Reconfiguration (without mobility control info) directly through the
  * gNB RRC SAP, tracking the gNB's reception of the reconfiguration-complete reply; it asserts the
  * UE connects and that the injected message exchange is processed via the SAPs, bypassing the
- * physical channel.
+ * physical channel. The last cases deliver a late reconfiguration to an idle UE, which ignores it.
  */
 
 /**
@@ -212,6 +212,78 @@ class NrRrcDirectMessageInjectionTestCase : public ns3::TestCase
     void InjectReconfigurationComplete(Ptr<ns3::NrGnbRrc> gnbRrc, uint16_t rnti);
 };
 
+/**
+ * @ingroup nr-test
+ *
+ * @brief Delivers a RRC connection reconfiguration to an idle UE RRC.
+ *
+ * The source cell can send a handover command after the UE declared a radio link failure. An
+ * unhandled message would abort the simulation, so reaching the checks is part of the test.
+ */
+class NrStaleRrcReconfigurationTestCase : public TestCase
+{
+  public:
+    /**
+     * Constructor.
+     *
+     * @param isHandoverCommand Whether the message carries mobility control information.
+     */
+    NrStaleRrcReconfigurationTestCase(bool isHandoverCommand);
+
+  private:
+    void DoRun() override;
+
+    /**
+     * Reconfiguration trace sink, which should never fire.
+     *
+     * @param imsi IMSI of the UE.
+     * @param cellId Serving cell.
+     * @param rnti RNTI of the UE.
+     */
+    void Reconfigured(uint64_t imsi, uint16_t cellId, uint16_t rnti);
+
+    bool m_isHandoverCommand;       ///< Whether the message is a handover command
+    uint32_t m_reconfigurations{0}; ///< Reconfigurations applied by the UE
+};
+
+NrStaleRrcReconfigurationTestCase::NrStaleRrcReconfigurationTestCase(bool isHandoverCommand)
+    : TestCase(std::string("Idle UE ignores a late ") +
+               (isHandoverCommand ? "handover command" : "reconfiguration")),
+      m_isHandoverCommand(isHandoverCommand)
+{
+}
+
+void
+NrStaleRrcReconfigurationTestCase::Reconfigured(uint64_t imsi, uint16_t cellId, uint16_t rnti)
+{
+    m_reconfigurations++;
+}
+
+void
+NrStaleRrcReconfigurationTestCase::DoRun()
+{
+    auto rrc = CreateObject<NrUeRrc>();
+    rrc->TraceConnectWithoutContext(
+        "ConnectionReconfiguration",
+        MakeCallback(&NrStaleRrcReconfigurationTestCase::Reconfigured, this));
+    const auto stateBefore = rrc->GetState();
+
+    NrRrcSap::RrcConnectionReconfiguration msg;
+    msg.rrcTransactionIdentifier = 0;
+    msg.haveMeasConfig = false;
+    msg.haveMobilityControlInfo = m_isHandoverCommand;
+    msg.haveRadioResourceConfigDedicated = false;
+    msg.haveNonCriticalExtension = false;
+    rrc->GetNrUeRrcSapProvider()->RecvRrcConnectionReconfiguration(msg);
+    Simulator::Run();
+
+    NS_TEST_EXPECT_MSG_EQ(rrc->GetState(), stateBefore, "The UE should remain in the same state");
+    NS_TEST_EXPECT_MSG_EQ(m_reconfigurations, 0, "The UE should not apply the message");
+
+    rrc->Dispose();
+    Simulator::Destroy();
+}
+
 // =====================================================================
 // Test suite
 // =====================================================================
@@ -225,6 +297,9 @@ class NrRrcStateTransitionTestSuite : public TestSuite
         AddTestCase(new NrRrcStateTransitionTestCase(), TestCase::Duration::QUICK);
         // Test case 2: Direct message injection with IDEAL RRC (bypasses physical channel)
         AddTestCase(new NrRrcDirectMessageInjectionTestCase(), TestCase::Duration::QUICK);
+        // Test case 3: A UE that left its connection ignores a late reconfiguration
+        AddTestCase(new NrStaleRrcReconfigurationTestCase(false), TestCase::Duration::QUICK);
+        AddTestCase(new NrStaleRrcReconfigurationTestCase(true), TestCase::Duration::QUICK);
     }
 };
 

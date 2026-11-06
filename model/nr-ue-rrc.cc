@@ -1699,6 +1699,21 @@ NrUeRrc::DoRecvRrcConnectionReconfiguration(NrRrcSap::RrcConnectionReconfigurati
         }
         break;
 
+    case IDLE_START:
+    case IDLE_CELL_SEARCH:
+    case IDLE_WAIT_MIB_SIB1:
+    case IDLE_WAIT_MIB:
+    case IDLE_WAIT_SIB1:
+    case IDLE_CAMPED_NORMALLY:
+    case IDLE_WAIT_SIB2:
+    case IDLE_RANDOM_ACCESS:
+    case IDLE_CONNECTING:
+        // The reconfiguration belongs to a connection the UE has already left, e.g., a
+        // handover command sent by the source cell after the UE declared a radio link failure
+        NS_LOG_WARN("Ignoring RrcConnectionReconfiguration of a previous connection in state "
+                    << ToString(m_state));
+        break;
+
     default:
         NS_FATAL_ERROR("method unexpected in state " << ToString(m_state));
         break;
