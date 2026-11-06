@@ -81,7 +81,7 @@ NrPmSearchMaleki::CreateCqiFeedbackMimo(const NrMimoSignal& rxSignalRb, PmiUpdat
         std::vector<size_t> strides = {sizeof(std::complex<double>) * sbNormChanMat.GetNumRows() *
                                            sbNormChanMat.GetNumCols(),
                                        sizeof(std::complex<double>),
-                                       sizeof(std::complex<double>) * sbNormChanMat.GetNumCols()};
+                                       sizeof(std::complex<double>) * sbNormChanMat.GetNumRows()};
         py::array HPython = py::array(py::buffer_info(
             const_cast<std::complex<double>*>(&sbNormChanMat.GetValues()[0]), // Pointer to data
             sizeof(std::complex<double>),                                     // Size of one scalar
@@ -136,15 +136,14 @@ NrPmSearchMaleki::CreateCqiFeedbackMimo(const NrMimoSignal& rxSignalRb, PmiUpdat
 
         // Estimate DFT coefficients that allows us
         // that can be mapped to i11, i12 and i2
-        size_t m = thetaM * N2 * O2 / M_2_PI;
-        size_t l = thetaL * N1 * O1 / M_2_PI;
+        size_t m = thetaM * N2 * O2 / (2 * M_PI);
+        size_t l = thetaL * N1 * O1 / (2 * M_PI);
         size_t n = phiN * 2 / M_PI;
 
         // Perform an exhaustive search to figure out the
         // optimal rank and i1,3 value (in case rank > 2)
         auto besti1 = 0;
         auto bestCap = 0.0;
-        ComplexMatrixArray bestPrec;
         for (auto rank : m_ranks)
         {
             auto codeBook = DynamicCast<NrCbTypeOneSp>(m_rankParams[rank].cb);
@@ -171,17 +170,13 @@ NrPmSearchMaleki::CreateCqiFeedbackMimo(const NrMimoSignal& rxSignalRb, PmiUpdat
                 if (cap > bestCap)
                 {
                     m_periodMaxRank = rank;
-                    besti1 = (i12 * numI11) + i11;
+                    besti1 = (i13 * numI11 * numI12) + (i12 * numI11) + i11;
                     bestCap = cap;
-                    bestPrec = precMat;
                 }
             }
         }
-        auto res = Create<NrPmSearchFull::PrecMatParams>();
-        res->perfMetric = bestCap;
-        res->wbPmi = besti1;
-        res->sbPrecMat = bestPrec;
-        m_rankParams[m_periodMaxRank].precParams = res;
+        m_rankParams[m_periodMaxRank].precParams =
+            FindOptSubbandPrecoding(sbNormChanMat, besti1, m_periodMaxRank);
     }
     else if (pmiUpdate.updateSb)
     {
@@ -190,7 +185,7 @@ NrPmSearchMaleki::CreateCqiFeedbackMimo(const NrMimoSignal& rxSignalRb, PmiUpdat
         auto& optPrec = m_rankParams[m_periodMaxRank].precParams;
         NS_ASSERT(optPrec);
         auto wbPmi = optPrec->wbPmi;
-        optPrec = FindOptSubbandPrecoding(rbNormChanMat, wbPmi, m_periodMaxRank);
+        optPrec = FindOptSubbandPrecoding(sbNormChanMat, wbPmi, m_periodMaxRank);
     }
     // Return corresponding CQI/PMI to optimal rank
     return CreateCqiForRank(m_periodMaxRank, rbNormChanMat);

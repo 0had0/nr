@@ -455,7 +455,7 @@ class TestRiPmiSystem : public TestSuite
 #ifdef PMI_MALEKI
         // Maleki's PMI test is enabled via a conditional compilation flag due to external
         // dependencies such as Pybind11+Pyttb presence
-        AddTestCase(new RiPmiTestCase( 20,             "",  0.0,  "ns3::NrPmSearchMaleki", 2.6, 27.0), Duration::QUICK);
+        AddTestCase(new RiPmiTestCase( 20,             "",  0.0,  "ns3::NrPmSearchMaleki", 4.0, 22.0), Duration::QUICK);
         AddTestCase(new RiPmiTestCase(500,             "",  0.0,  "ns3::NrPmSearchMaleki", 2.2, 27.0), Duration::QUICK);
 #endif
         // clang-format on

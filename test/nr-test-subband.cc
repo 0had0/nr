@@ -294,7 +294,8 @@ NrPmSearchSubbandUpdateTestCase::DoRun()
 {
     const size_t nRxPorts = 2;
     const size_t nTxPorts = 2;
-    const size_t nRbs = 10;
+    const size_t nRbs = 32;
+    const size_t subbandSize = 4;
 
     NrMimoSignal signal;
     signal.m_chanMat = ComplexMatrixArray(nRxPorts, nTxPorts, nRbs);
@@ -316,7 +317,7 @@ NrPmSearchSubbandUpdateTestCase::DoRun()
         search->SetAmc(CreateObject<NrAmc>());
         search->SetGnbParams(false, nTxPorts, 1);
         search->SetUeParams(nRxPorts);
-        search->SetSubbandSize(1);
+        search->SetSubbandSize(subbandSize);
         search->InitCodebooks();
         return search;
     };
@@ -332,13 +333,88 @@ NrPmSearchSubbandUpdateTestCase::DoRun()
                           true,
                           "SB PMIs should match a full update");
     NS_TEST_EXPECT_MSG_GT(+fallback.m_wbCqi, 0, "The channel should support a CQI");
+    NS_TEST_EXPECT_MSG_GT(full.m_sbPmis.size(), 0, "A full update should report subband PMIs");
 
     // Once the precoding exists, a subband-only update keeps working on it
     const auto refined = subbandSearch->CreateCqiFeedbackMimo(signal, {false, m_updateSb});
     NS_TEST_EXPECT_MSG_EQ(refined.m_wbPmi, full.m_wbPmi, "The update should keep the WB PMI");
+    NS_TEST_EXPECT_MSG_LT_OR_EQ(refined.m_sbPmis.size(),
+                                nRbs / subbandSize,
+                                "The update should work on subbands, not RBs");
 
     Simulator::Destroy();
 }
+
+#ifdef PMI_MALEKI
+/**
+ * @ingroup test
+ * Check that NrPmSearchMaleki maps the estimated channel phase to the matching i11 beam.
+ */
+class NrPmSearchMalekiBeamTestCase : public TestCase
+{
+  public:
+    /**
+     * Constructor.
+     *
+     * @param nRxPorts Number of UE ports.
+     */
+    NrPmSearchMalekiBeamTestCase(size_t nRxPorts);
+
+  private:
+    void DoRun() override;
+
+    size_t m_nRxPorts; ///< Number of UE ports
+};
+
+NrPmSearchMalekiBeamTestCase::NrPmSearchMalekiBeamTestCase(size_t nRxPorts)
+    : TestCase("ns3::NrPmSearchMaleki: i11 follows the channel phase with " +
+               std::to_string(nRxPorts) + " UE ports"),
+      m_nRxPorts(nRxPorts)
+{
+}
+
+void
+NrPmSearchMalekiBeamTestCase::DoRun()
+{
+    const size_t nTxPorts = 4;
+    const size_t nRbs = 32;
+    const size_t numI11 = 8;
+
+    for (size_t beam = 0; beam < numI11; beam++)
+    {
+        const double phase = 2 * M_PI * (beam + 0.5) / numI11;
+
+        NrMimoSignal signal;
+        signal.m_chanMat = ComplexMatrixArray(m_nRxPorts, nTxPorts, nRbs);
+        signal.m_covMat = NrCovMat(ComplexMatrixArray(m_nRxPorts, m_nRxPorts, nRbs));
+        for (size_t rb = 0; rb < nRbs; rb++)
+        {
+            for (size_t rx = 0; rx < m_nRxPorts; rx++)
+            {
+                signal.m_covMat(rx, rx, rb) = 0.01;
+                for (size_t tx = 0; tx < nTxPorts; tx++)
+                {
+                    signal.m_chanMat(rx, tx, rb) = std::polar(1.0, rx * phase + tx * 0.4);
+                }
+            }
+        }
+
+        ObjectFactory factory("ns3::NrPmSearchMaleki");
+        factory.Set("CodebookType", TypeIdValue(TypeId::LookupByName("ns3::NrCbTypeOneSp")));
+        auto search = factory.Create<NrPmSearch>();
+        search->SetAmc(CreateObject<NrAmc>());
+        search->SetGnbParams(true, nTxPorts / 2, 1);
+        search->SetUeParams(m_nRxPorts);
+        search->SetSubbandSize(4);
+        search->InitCodebooks();
+
+        const auto feedback = search->CreateCqiFeedbackMimo(signal, {true, true});
+        NS_TEST_EXPECT_MSG_EQ(feedback.m_wbPmi % numI11, beam, "Unexpected i11 for the phase");
+    }
+
+    Simulator::Destroy();
+}
+#endif
 
 class TestSubband : public TestSuite
 {
@@ -426,6 +502,10 @@ class TestSubband : public TestSuite
                             Duration::QUICK);
             }
         }
+#ifdef PMI_MALEKI
+        AddTestCase(new NrPmSearchMalekiBeamTestCase(4), Duration::QUICK);
+        AddTestCase(new NrPmSearchMalekiBeamTestCase(2), Duration::QUICK);
+#endif
     }
 };
 
