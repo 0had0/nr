@@ -282,6 +282,12 @@ void
 NrPhy::SetNumerology(uint16_t numerology)
 {
     NS_LOG_FUNCTION(this);
+    // The UE RRC applies the numerology of every MIB it receives. Updating the number of RBs
+    // resets the noise PSD, which aborts an ongoing reception, so only do it on a change
+    if (numerology == m_numerology && m_slotPeriod.IsStrictlyPositive())
+    {
+        return;
+    }
     m_numerology = numerology;
     m_slotsPerSubframe = static_cast<uint16_t>(std::pow(2, numerology));
     m_slotPeriod = Seconds(0.001 / m_slotsPerSubframe);

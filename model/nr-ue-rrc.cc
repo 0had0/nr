@@ -1183,9 +1183,20 @@ NrUeRrc::DoRecvMasterInformationBlock(uint16_t cellId,
     // and trips the "Cannot TX while RX" fatal in NrSpectrumPhy. The BWP that
     // received this MIB is, by construction, on the MIB's carrier, so
     // configuring it from the MIB is always self-consistent.
+    //
+    // The MIB subcarrier spacing is the one of SIB1, Msg2/4, paging and broadcast SI, used to
+    // acquire a cell (TS 38.331, MIB). The numerology of the BWP a connected UE is served on
+    // changes only with its configuration: RRC (re)configuration, handover or BWP switch.
+    // Reconfiguring that BWP from a MIB would also abort the data reception in progress.
     const std::size_t mibBwp = GetArfcnBwpId(arfcn);
-    m_cphySapProvider.at(mibBwp)->SetDlBandwidth(msg.dlBandwidth);
-    m_cphySapProvider.at(mibBwp)->SetNumerology(msg.numerology);
+    const bool connected = m_state == CONNECTED_NORMALLY || m_state == CONNECTED_HANDOVER ||
+                           m_state == CONNECTED_PHY_PROBLEM;
+    const bool servingBwp = mibBwp == GetPrimaryDlIndex() || mibBwp == GetPrimaryUlIndex();
+    if (!connected || !servingBwp)
+    {
+        m_cphySapProvider.at(mibBwp)->SetDlBandwidth(msg.dlBandwidth);
+        m_cphySapProvider.at(mibBwp)->SetNumerology(msg.numerology);
+    }
 
     // Update the SERVING DL bandwidth bookkeeping only when this MIB configures
     // the primary serving BWP (serving cell, primary carrier). Before commitment
