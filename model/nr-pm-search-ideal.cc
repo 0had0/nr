@@ -37,7 +37,8 @@ NrPmSearchIdeal::CreateCqiFeedbackMimo(const NrMimoSignal& rxSignalRb, PmiUpdate
     auto sbNormChanMat = SubbandDownsampling(rbNormChanMat);
 
     // Update precoding matrices
-    if (pmiUpdate.updateWb || pmiUpdate.updateSb)
+    // A reinitialized search has no precoding to refine, while the PHY update timers keep running.
+    if (pmiUpdate.updateWb || pmiUpdate.updateSb || !m_rankParams[m_periodMaxRank].precParams)
     {
         Ptr<NrPmSearchFull::PrecMatParams> best = nullptr;
         uint8_t bestRank = 0;

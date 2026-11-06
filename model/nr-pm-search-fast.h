@@ -54,7 +54,7 @@ class NR_EXPORT NrPmSearchFast : public NrPmSearchFull
     size_t GetWidebandI1(Ptr<const NrCbTypeOne> cb, const ComplexMatrixArray& Havg) const;
 
   private:
-    uint8_t m_periodMaxRank;
+    uint8_t m_periodMaxRank{0};
 };
 
 } // namespace ns3

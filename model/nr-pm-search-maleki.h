@@ -43,7 +43,7 @@ class NR_EXPORT NrPmSearchMaleki : public NrPmSearchFull
     PmCqiInfo CreateCqiFeedbackMimo(const NrMimoSignal& rxSignalRb, PmiUpdate pmiUpdate) override;
 
   private:
-    uint8_t m_periodMaxRank;
+    uint8_t m_periodMaxRank{0};
 };
 
 } // namespace ns3

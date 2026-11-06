@@ -108,7 +108,10 @@ void
 NrPmSearchFull::ConditionallyUpdatePrecoding(const NrIntfNormChanMat& rbNormChanMat,
                                              PmiUpdate pmiUpdate)
 {
-    if (pmiUpdate.updateWb)
+    // A reinitialized search has no precoding to refine, while the PHY update timers keep running.
+    // A full update fills every rank, so checking one of them is enough.
+    const bool hasPrecoding{m_rankParams.back().precParams};
+    if (pmiUpdate.updateWb || !hasPrecoding)
     {
         UpdateAllPrecoding(rbNormChanMat);
     }

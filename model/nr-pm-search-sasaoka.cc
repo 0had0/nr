@@ -114,7 +114,8 @@ NrPmSearchSasaoka::CreateCqiFeedbackMimo(const NrMimoSignal& rxSignalRb, PmiUpda
     auto sbNormChanMat = SubbandDownsampling(rbNormChanMat);
 
     // In case it is time to update the PMI, do it
-    if (pmiUpdate.updateWb)
+    // A reinitialized search has no precoding to refine, while the PHY update timers keep running.
+    if (pmiUpdate.updateWb || !m_rankParams[m_periodMaxRank].precParams)
     {
         auto Hcorr = NrIntfNormChanMat(sbNormChanMat.HermitianTranspose() * sbNormChanMat);
 

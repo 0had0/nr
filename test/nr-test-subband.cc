@@ -15,6 +15,7 @@
 #include "ns3/nr-channel-helper.h"
 #include "ns3/nr-gnb-net-device.h"
 #include "ns3/nr-helper.h"
+#include "ns3/nr-mimo-signal.h"
 #include "ns3/nr-pm-search-full.h"
 #include "ns3/nr-point-to-point-epc-helper.h"
 #include "ns3/nr-qos-flow.h"
@@ -255,6 +256,90 @@ GetNumSbsAndLastSbInfo(size_t prbs, size_t sbSize)
     return std::make_tuple(numSbs, lastSbSize, lastSbStartingPrb);
 }
 
+/**
+ * @ingroup nr-test
+ *
+ * @brief Compares a new search that was not asked for a wideband update with a full update of
+ * another, for each search algorithm.
+ */
+class NrPmSearchSubbandUpdateTestCase : public TestCase
+{
+  public:
+    /**
+     * Constructor.
+     *
+     * @param searchType TypeId name of the search algorithm.
+     * @param updateSb Whether a subband update is requested.
+     */
+    NrPmSearchSubbandUpdateTestCase(const std::string& searchType, bool updateSb);
+
+  private:
+    void DoRun() override;
+
+    std::string m_searchType; ///< TypeId name of the search algorithm
+    bool m_updateSb;          ///< Whether a subband update is requested
+};
+
+NrPmSearchSubbandUpdateTestCase::NrPmSearchSubbandUpdateTestCase(const std::string& searchType,
+                                                                 bool updateSb)
+    : TestCase(searchType + (updateSb ? ": subband-only" : ": no") +
+               " update of a new search matches a full update"),
+      m_searchType(searchType),
+      m_updateSb(updateSb)
+{
+}
+
+void
+NrPmSearchSubbandUpdateTestCase::DoRun()
+{
+    const size_t nRxPorts = 2;
+    const size_t nTxPorts = 2;
+    const size_t nRbs = 10;
+
+    NrMimoSignal signal;
+    signal.m_chanMat = ComplexMatrixArray(nRxPorts, nTxPorts, nRbs);
+    signal.m_covMat = NrCovMat(ComplexMatrixArray(nRxPorts, nRxPorts, nRbs));
+    for (size_t rb = 0; rb < nRbs; rb++)
+    {
+        signal.m_chanMat(0, 0, rb) = {1.0, 0.1 * rb};
+        signal.m_chanMat(0, 1, rb) = {0.5, -0.2};
+        signal.m_chanMat(1, 0, rb) = {-0.3, 0.4};
+        signal.m_chanMat(1, 1, rb) = {0.8, -0.1 * rb};
+        signal.m_covMat(0, 0, rb) = 0.01;
+        signal.m_covMat(1, 1, rb) = 0.01;
+    }
+
+    const auto createSearch = [this]() {
+        ObjectFactory factory(m_searchType);
+        factory.Set("CodebookType", TypeIdValue(TypeId::LookupByName("ns3::NrCbTypeOneSp")));
+        auto search = factory.Create<NrPmSearch>();
+        search->SetAmc(CreateObject<NrAmc>());
+        search->SetGnbParams(false, nTxPorts, 1);
+        search->SetUeParams(nRxPorts);
+        search->SetSubbandSize(1);
+        search->InitCodebooks();
+        return search;
+    };
+
+    const auto full = createSearch()->CreateCqiFeedbackMimo(signal, {true, true});
+    auto subbandSearch = createSearch();
+    const auto fallback = subbandSearch->CreateCqiFeedbackMimo(signal, {false, m_updateSb});
+
+    NS_TEST_EXPECT_MSG_EQ(+fallback.m_rank, +full.m_rank, "Rank should match a full update");
+    NS_TEST_EXPECT_MSG_EQ(fallback.m_wbPmi, full.m_wbPmi, "WB PMI should match a full update");
+    NS_TEST_EXPECT_MSG_EQ(+fallback.m_wbCqi, +full.m_wbCqi, "WB CQI should match a full update");
+    NS_TEST_EXPECT_MSG_EQ((fallback.m_sbPmis == full.m_sbPmis),
+                          true,
+                          "SB PMIs should match a full update");
+    NS_TEST_EXPECT_MSG_GT(+fallback.m_wbCqi, 0, "The channel should support a CQI");
+
+    // Once the precoding exists, a subband-only update keeps working on it
+    const auto refined = subbandSearch->CreateCqiFeedbackMimo(signal, {false, m_updateSb});
+    NS_TEST_EXPECT_MSG_EQ(refined.m_wbPmi, full.m_wbPmi, "The update should keep the WB PMI");
+
+    Simulator::Destroy();
+}
+
 class TestSubband : public TestSuite
 {
   public:
@@ -324,6 +409,21 @@ class TestSubband : public TestSuite
                 AddTestCase(
                     new SubbandContentsTestCase(input, randomRef, sbSize, "RandomPRB", false),
                     Duration::QUICK);
+            }
+        }
+        std::vector<std::string> searchTypes{"ns3::NrPmSearchFull",
+                                             "ns3::NrPmSearchFast",
+                                             "ns3::NrPmSearchIdeal",
+                                             "ns3::NrPmSearchSasaoka"};
+#ifdef PMI_MALEKI
+        searchTypes.emplace_back("ns3::NrPmSearchMaleki");
+#endif
+        for (const auto& searchType : searchTypes)
+        {
+            for (bool updateSb : {true, false})
+            {
+                AddTestCase(new NrPmSearchSubbandUpdateTestCase(searchType, updateSb),
+                            Duration::QUICK);
             }
         }
     }

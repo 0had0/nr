@@ -68,7 +68,8 @@ NrPmSearchFast::CreateCqiFeedbackMimo(const NrMimoSignal& rxSignalRb, PmiUpdate 
     auto sbNormChanMat = SubbandDownsampling(rbNormChanMat);
 
     // In case it is time to update the PMI, do it
-    if (pmiUpdate.updateWb)
+    // A reinitialized search has no precoding to refine, while the PHY update timers keep running.
+    if (pmiUpdate.updateWb || !m_rankParams[m_periodMaxRank].precParams)
     {
         // Compute the channel correlation for each band (C = H^h * H)
         auto C = NrIntfNormChanMat(sbNormChanMat.HermitianTranspose() * sbNormChanMat);
