@@ -67,6 +67,7 @@ us a note on ns-developers mailing list.
 - Add the ``NrUePowerControl::P0Srs`` attribute (-80 dBm by default, from -202 to 24 dBm as the ``p0`` field of ``SRS-Config`` in TS 38.331), the ``P0`` of the SRS power control formula of TS 38.213 clause 7.3.1, used when ``TSpec`` is ``TS38.213``.
 - Add ``NrGnbPhy::DeregisterUe()``, removing a UE from the UEs of the gNB, including its CSI-RS.
 - Add the ``NrEesmIr::CreditRateBelowModulationFloor`` attribute, enabled by default (see Changed Behavior).
+- Add the ``Numerology`` attribute to ``NrMacSchedulerOfdmaAi`` and ``NrMacSchedulerTdmaAi``.
 
 ### Changes to Existing API
 - Following the ns-3 spectrum change that passes beamforming vectors explicitly (ns-3 issue #1369), ``NYUSpectrumPropagationLossModel`` and ``DistanceBasedThreeGppSpectrumPropagationLossModel`` overrides of ``DoCalcRxPowerSpectralDensity()`` and ``GetLongTerm()`` take the two beamforming vectors as parameters, and callers of ``CalcRxPowerSpectralDensity()`` and ``DoCalcRxPowerSpectralDensity()`` now pass them (typically ``array->GetBeamformingVector()``) instead of relying on the arrays' current state.
@@ -79,6 +80,9 @@ us a note on ns-developers mailing list.
 - ``NrGtpuHeader::SetExtensionHeaderFlag()`` and ``NrGtpuHeader::SetNextExtensionType()`` are removed: the E flag and the next extension header type are now derived from the extension headers added with ``AddExtensionHeader()``.
 - The following ``NrMacSchedulerNs3`` methods are now ``final``, as they depend on its private state and cannot be meaningfully overridden: ``DoCschedCellConfigReq()``, ``DoCschedUeConfigReq()``, ``DoSchedDlRlcBufferReq()``, ``DoSchedUlMacCtrlInfoReq()``, ``DoSchedDlCqiInfoReq()``, ``DoSchedUlCqiInfoReq()``, ``DoCschedUeReleaseReq()``, ``DoCschedLcConfigReq()``, ``DoCschedLcReleaseReq()``, ``DoSchedDlTriggerReq()``, ``DoSchedUlTriggerReq()``, ``DoSchedUlSrInfoReq()``, ``DoSchedSetMcs()``, ``DoSchedDlRachInfoReq()``, ``GetDlCtrlSyms()``, ``GetUlCtrlSyms()`` and ``IsMaxSrsReached()``. Schedulers that derive from ``NrMacSchedulerNs3`` and override any of them no longer compile.
 - The ``NumMainInterfererGnb`` and ``PrimaryCarrierIndex`` attributes of ``NrInitialAssociation``, and ``NrHelper::InitialAssocParams::primaryCarrierIndex``, are ``uint8_t`` instead of ``double``.
+- ``NrMacSchedulerNs3::ScheduleUlHarq()`` and ``NrMacSchedulerHarqRr::ScheduleUlHarq()`` take the map of the active UL HARQ processes as their third parameter.
+- The TypeIds of the symbol-per-beam allocators are renamed from ``ns3::NrMacSchedulerONrMacSchedulerOfdmaSymbolPerBeam`` and ``ns3::NrMacSchedulerONrMacSchedulerOfdmaSymbolPerBeamLB`` to ``ns3::NrMacSchedulerOfdmaSymbolPerBeam`` and ``ns3::NrMacSchedulerOfdmaSymbolPerBeamLB``.
+- The AI-based schedulers observe UEs instead of logical channels: ``NrMacSchedulerUeInfoAi::LcObservation`` is replaced by ``NrMacSchedulerUeInfoAi::UeObservation``, the ``NrMacSchedulerUeInfoAi`` constructor takes the numerology as its second parameter, and the ``NrMacSchedulerAiNs3GymEnv`` constructor takes the number of UEs instead of the number of flows.
 
 ### Changed Behavior
 
@@ -110,8 +114,18 @@ us a note on ns-developers mailing list.
 - When a transport block is decoded with the MIMO SINR, the SINR reported in ``RxPacketTraceParams`` (``RxPacketTrace.txt``) is now the per-layer MIMO SINR passed to the error model, averaged over the allocated RBs and layers, instead of the SISO SINR derived from the received PSD. The SISO value aggregates the power of all layers and ignores inter-layer interference, so it did not match the reported TBLER, e.g., overestimating the SINR of rank-2 transmissions.
 - ``NrRlcUm`` now reports its buffer status after every transmission opportunity that leaves data in its queue. The reported size counts one header per SDU while each segment takes one, so the UE MAC could consider the queue empty with data left in the RLC, pad the rest of the grant and report an empty buffer, delaying the rest of the SDU by ``NrRlcUm::BufferStatusReportTimer``. The output of simulations using RLC UM changes accordingly.
 - The scheduler now keeps the DL HARQ retransmissions of a slot without symbols for DL, because UL took them all, for a later slot. They used to be dropped, leaving the HARQ process waiting for its timer and the RLC waiting for a PDU that would never arrive. A HARQ process waiting for its retransmission also no longer expires by the timer, which only covers feedback that never arrives.
-- The initial association activates the UE panel that best receives the associated gNB, instead of the panel that best receives the strongest beam of all the scanned gNBs before the path loss.
-- The initial association no longer multiplies the received power by the gNB transmit power in dBm, which the channel already includes, so the RSRP of each gNB follows its transmit power and the associated gNB may change.
+- The initial association sets the RSRP and the best beam of each gNB from the strongest beam of that gNB, no longer multiplies the received power by the gNB transmit power in dBm, which the channel already includes, and activates the UE panel that best receives the associated gNB, instead of the panel that best receives the strongest beam of all the scanned gNBs before the path loss. The RSRP of each gNB follows its transmit power and the associated gNB may change.
+- The UE now releases the UL CTRL channel access of a slot in which it sends nothing, so it sends its UL CTRL, and the DL HARQ feedback in it, in an SRS slot that follows a slot with UL CTRL (#292).
+- The UE MAC now reserves the MAC subheader and the SHORT_BSR of an RLC STATUS PDU before admitting it, sizes the UL MAC subheaders and the SHORT_BSR exactly, and fills the bytes left in a TB with a padding BSR.
+- The gNB PHY now sends its control messages in the order they were produced (queued messages such as MIB and SIB1 first, then DL and UL DCIs), instead of an order that depended on heap addresses (#290). Simulation outputs change.
+- The UE now only updates its number of RBs from a MIB when the numerology changes, and the numerology of the BWP a connected UE is served on changes only with its configuration, so a MIB no longer aborts an ongoing reception.
+- The UE now ignores an RRC reconfiguration of a connection it has already left, e.g., a handover command sent after it declared a radio link failure.
+- The PMI searches fall back to a full update when a subband update has no precoding to refine. The Maleki search computes different subband PMIs and beam mapping.
+- The gNB no longer transmits CSI-RS towards UEs without an RNTI, and a UE without an RNTI ignores CSI-RS.
+- ``NrMacSchedulerHarqRr::ScheduleUlHarq()`` no longer places two UL retransmissions of a UE on the same symbols.
+- ``NrMacSchedulerNs3::SortUlHarq()`` now calls ``NrMacSchedulerHarqRr::SortUlHarq()``, which sorts as ``SortDlHarq()`` does, so a subclass can sort the UL HARQ retransmissions on its own.
+- The HARQ beam round-robin of ``NrMacSchedulerHarqRr`` now moves the beam served first to the back of its queue in every slot, with separate DL and UL queues, and serves the UL HARQ retransmissions in beam round-robin order too. The same beam was served first in every slot.
+- ``NrFhControl`` now subtracts the per-UE overhead from the capacity in ``GetMaxRegAssignable()`` and ``GetMaxMcsAssignable()``, releases a UE with a HARQ retransmission once it is scheduled, uses the antenna ports of the BWP of each allocation, and returns 0 active UEs for a BWP with only HARQ UEs. ``OptimizeMcs`` and ``OptimizeRBs`` give much higher MCSs and RBs than before.
 
 ## Changes from NR-v5.0 to v5.1
 

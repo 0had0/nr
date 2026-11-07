@@ -15,8 +15,16 @@ http://www.nsnam.org including tutorials: https://www.nsnam.org/documentation/
 Consult the file CHANGES.md for more detailed information about changed
 API and behavior across releases.
 
-Release NR-v5.2 (under development)
------------------------------------
+Release NR-v5.2
+---------------
+
+Availability
+------------
+November 20, 2026.
+
+Cite this version
+-----------------
+DOI: 10.5281/zenodo.24391398
 
 New user-visible features
 -------------------------
@@ -63,6 +71,23 @@ New user-visible features
   Container extension header with the QFI, in both directions, as on the N3
   interface of 5G core networks (4 more bytes per packet). ``NrGtpuHeader`` now
   supports any chain of GTP-U extension headers.
+- The AI-based schedulers now observe the UEs instead of their logical channels,
+  take the numerology of the carrier (``Numerology`` attribute of
+  ``NrMacSchedulerOfdmaAi`` and ``NrMacSchedulerTdmaAi``), and
+  ``gsoc-nr-rl-based-sched`` comes with DDQN, A2C, DDPG and PPO agents, PDCP
+  discarding options, and a CI job.
+- Added unstructured PDU sessions (3GPP TS 23.501, clause 5.6.1), which carry
+  one non-IP network-layer protocol that the network does not parse, also when
+  roaming.
+- Added the ``nr-external-core-roaming`` example, in which the UEs of a
+  simulation roam to an external 5G core network (Open5GS) through nr-bridge,
+  with the scripts to set it up in ``utils/open5gs-roaming``.
+- ``TrafficGenerator`` can add a ``SeqTsSizeHeader`` to its packets
+  (``EnableSeqTsSizeHeader`` attribute, ``TxWithSeqTsSize`` trace source), and
+  ``TrafficGeneratorNgmnVoip`` now sends one packet per encoder frame during
+  talk spurts.
+- When a transport block is decoded with the MIMO SINR, ``RxPacketTrace.txt``
+  now reports that SINR, and the error model traces carry it too.
 
 Bugs fixed
 ----------
@@ -126,27 +151,18 @@ Bugs fixed
   that were frequency multiplexed in their first transmission are no longer
   serialized in time or deferred to a later slot. Covered by the
   ``nr-test-sched-harq`` test suite.
-- Fixed UL HARQ retransmissions leaving the rest of the band empty with the OFDMA
-  schedulers. New UL data of UEs in the beam of the retransmissions is now
-  scheduled on the RBGs they leave free, over the same symbols, before the
-  remaining symbols of the slot are allocated. UEs are only placed there when
-  this does not leave the remaining symbols unused. Covered by the
-  ``nr-test-sched-harq`` test suite.
-- Fixed DL HARQ retransmissions leaving the rest of the band empty with the OFDMA
-  schedulers. New DL data of the other UEs in the beam of the retransmissions is
-  now scheduled on the RBGs they leave free, over the same symbols, before the
-  remaining symbols of the slot are allocated. UEs are only placed there when
-  this does not leave the remaining symbols unused. Covered by the
-  ``nr-test-sched-harq`` test suite.
-- Fixed UL HARQ retransmissions being deferred to a later slot when their symbols
-  did not fit in the ones left, although their resources did. Such a retransmission
-  is now reshaped into the fewest symbols left that hold its resources, keeping its
-  MCS and TBS. Covered by the ``nr-test-sched-harq`` test suite.
-- Fixed DL HARQ retransmissions being deferred to a later slot when their RBGs were
-  taken by another retransmission of their beam, or their symbols did not fit in the
-  ones left, although their resources did. Such a retransmission is now reshaped into
-  the fewest symbols left that hold its resources, keeping its MCS and TBS. Covered
-  by the ``nr-test-sched-harq`` test suite.
+- Fixed DL and UL HARQ retransmissions leaving the rest of the band empty with
+  the OFDMA schedulers. New data of the other UEs in the beam of the
+  retransmissions is now scheduled on the RBGs they leave free, over the same
+  symbols, before the remaining symbols of the slot are allocated. UEs are only
+  placed there when this does not leave the remaining symbols unused. Covered by
+  the ``nr-test-sched-harq`` test suite.
+- Fixed DL and UL HARQ retransmissions being deferred to a later slot when their
+  symbols did not fit in the ones left, or, in the DL, their RBGs were taken by
+  another retransmission of their beam, although their resources did. Such a
+  retransmission is now reshaped into the fewest symbols left that hold its
+  resources, keeping its MCS and TBS. Covered by the ``nr-test-sched-harq`` test
+  suite.
 - Fixed the OFDMA schedulers placing all the UEs on the RBGs left free by the first
   HARQ retransmission span of a beam, leaving the following spans empty and some UEs
   without enough resources for their data. The UEs are now spread over all the spans
@@ -204,6 +220,65 @@ Bugs fixed
   the dense urban calibration two thirds of the FTP files lost data. The
   segments of an SDU split across PDUs are now held by SN and reassembled once
   all of them are received, in any order.
+- Fixed ``NrRlcUm`` leaving bytes in its queue that the UE never requested a
+  grant for (#298). It now reports its buffer status after every transmission
+  opportunity that leaves data in its queue. Covered by the new
+  ``nr-ul-stranded-rlc-bytes`` test suite.
+- Fixed DL HARQ retransmissions being lost in a slot without DL symbols, because
+  UL took them all, or when their timer expired while they waited. They now wait
+  for a later slot. Covered by the new ``nr-dl-harq-retx-no-symbols`` test
+  suite.
+- Fixed two UL HARQ retransmissions of a UE being placed on the same symbols.
+  The UE sent them one after the other, overran its slot, and the simulation
+  aborted with "Cannot RX UL CTRL while receiving DATA". Covered by the
+  ``nr-test-sched-harq`` test suite.
+- Fixed the HARQ beam round-robin serving the same beam first in every slot,
+  and the UL HARQ retransmissions not following it. Covered by the
+  ``nr-test-sched-harq`` test suite.
+- Fixed the UE MAC admitting an RLC STATUS PDU without reserving its MAC
+  subheader and the SHORT_BSR. The UE MAC now also sizes the UL MAC subheaders
+  and the SHORT_BSR exactly, and fills the bytes left in a TB with a padding
+  BSR. Covered by the new ``nr-ue-mac-status`` test suite.
+- Fixed the UE not sending its UL CTRL, and the DL HARQ feedback in it, in an
+  SRS slot that followed a slot in which it had sent UL CTRL (#292): the channel
+  access granted for one slot was kept, so the next slot requested none. Covered
+  by the new ``nr-harq-feedback-timing`` test suite.
+- Fixed the order of the control messages of the gNB depending on heap
+  addresses, which made simulations not reproducible across runs (#290).
+- Fixed the ``gsoc-leo-demo-example`` computing the beamforming vectors before
+  orienting the satellite antennas (#287).
+- Fixed ``NrFhControl`` adding the per-UE overhead instead of subtracting it in
+  ``GetMaxRegAssignable()`` and ``GetMaxMcsAssignable()``, which wrapped around
+  and sent every UE at MCS 0 with ``OptimizeMcs``; never releasing the UEs with
+  HARQ retransmissions, which kept their BWP active; reading the antenna ports
+  of BWP 0 instead of the BWP of the allocation; and throwing
+  ``std::out_of_range`` for a BWP with only HARQ UEs. Covered by the new
+  ``nr-test-fh-control`` test suite.
+- Fixed the initial association not setting the RSRP and the best beam of each
+  gNB from the strongest beam of that gNB, scaling the received power by the gNB
+  transmit power in dBm a second time, and activating the UE panel of the
+  strongest beam of all gNBs instead of the one of the associated gNB. Covered
+  by the new ``nr-initial-association`` test suite.
+- Fixed the UE aborting its ongoing reception when it reapplied the numerology
+  of every MIB it received. Covered by the new ``nr-numerology-reception`` test
+  suite.
+- Fixed the UE applying an RRC reconfiguration of a connection it had already
+  left, e.g., a handover command sent after it declared a radio link failure.
+- Fixed the subband PMI update of the PMI searches when a reinitialized search
+  had no precoding to refine; it now falls back to a full update. Fixed the
+  subband PMIs and the beam mapping of the Maleki search.
+- Fixed the gNB sending CSI-RS towards RNTI 0, which every UE without an RNTI
+  accepted, and the UE scheduling its CSI-IM check with a negative delay with a
+  propagation delay.
+- Fixed the spectrum channel matrix of signals without one, e.g., with the
+  ``TwoRay`` channel model, being normalized by the transmitter PSD a second
+  time.
+- Fixed the TypeId names of ``NrMacSchedulerOfdmaSymbolPerBeam`` and
+  ``NrMacSchedulerOfdmaSymbolPerBeamLB``, which had a duplicated prefix, and
+  registered the ``NrChannelHelper`` TypeId.
+- Fixed a segmentation fault during the disposal of ``NrPhy``, and
+  ``NrUePhy::EndVarTti()`` warning at every slot about clamping a delay that was
+  exactly zero.
 
 Release NR-v5.1
 ---------------

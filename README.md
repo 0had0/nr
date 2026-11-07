@@ -52,6 +52,7 @@ We can organize tutorials for the academy or industry.
 
 In alphabetical order:
 
+- João Albuquerque
 - Zoraze Ali
 - Amir Ashtari
 - Biljana Bojovic
@@ -62,7 +63,21 @@ In alphabetical order:
 - Ana Larranaga
 - Natale Patriciello
 
-Contributors: Tom Henderson, Giovanni Grieco, Carlos Herranz, André Apitzsch
+Contributors:
+
+- Ygor Amaral
+- André Apitzsch
+- Jesse Chiu, Kuan-Po
+- Samantha Gamboa
+- Giovanni Grieco
+- He Yifeng
+- Tom Henderson
+- Carlos Herranz
+- Hyerin Kim
+- Nirmal Kumar
+- Thiago Miyazaki
+- Joseanne Viana
+- Abdul Wadud
 
 Inspired by [mmWave module by NYU/UniPD](https://github.com/nyuwireless-unipd/ns3-mmwave)
 
@@ -198,6 +213,7 @@ for each nr release.
 
 | nr version     | ns-3 version  | Build system  | Release date       |
 | :------------: | :-----------: | :-----------: | ------------------ |
+| 5g-lena-v5.2.y | ns-3.49       | cmake         | November 20, 2026  |
 | 5g-lena-v5.1.y | ns-3.48       | cmake         | August 6, 2026     |
 | 5g-lena-v5.0.y | ns-3.48       | cmake         | July 3, 2026       |
 | 5g-lena-v4.2.y | ns-3.47       | cmake         | March 5, 2026      |

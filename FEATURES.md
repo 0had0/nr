@@ -77,6 +77,7 @@ It is meant to be a compact, “at-a-glance” view, complementary to the detail
 | [NYUSIM](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#nr-channel-helper)                                 | ✅ Supported | NYU mmWave/THz channel; based on real NYU measurements (**NR-v4.0**)                         |
 | [Fluctuating Two-Ray (FTR)](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#nr-channel-helper)              | ✅ Supported | FTR model built on top of 3GPP pathloss/channel for fast abstraction; (**NR-v4.0**)          |
 | [Sionna Ray Tracing](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#nr-channel-helper)                     | ✅ Supported | Sionna-based channel model for the precise simulation of radio wave propagation              |
+| [Transmit filters](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#nr-channel-helper)                     | ✅ Supported | Skip the channel of gNB-gNB and UE-UE links, or between NR and non-NR devices (**NR-v5.2**)   |
 | [Legacy ns-3 non-spatial/Friis channel](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#nr-channel-helper)  | ✅ Supported | ns-3 legacy non-spatial channel models; Ideal for large-scale simulations (**NR-v4.0**)      |
 
 ---
@@ -89,15 +90,15 @@ It is meant to be a compact, “at-a-glance” view, complementary to the detail
 | [PF / RR / MR](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#scheduler)                                                    | ✅ Supported | Temporal fairness                                                                           |
 | [QoS-aware scheduler](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#qos-schedulers)                                        | ✅ Supported | 5QI-aware; LC byte assignment (**NR-v2.5**)                                                 |
 | [Random TDMA / OFDMA schedulers](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#resource-allocation-model-ofdma-and-tdma)   | ✅ Supported | Stress interference testing (**NR-v4.1**)                                                   |
-| [AI Reinforcement-Learning scheduler](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#rl-based-scheduler)                    | ✅ Supported | Via ns3-gym (**NR-v4.0**)                                                                   |
+| [AI Reinforcement-Learning scheduler](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#rl-based-scheduler)                    | ✅ Supported | Via ns3-gym (**NR-v4.0**); per-UE observations; DDQN, A2C, DDPG and PPO agents (**NR-v5.2**) |
 | [Sub-band CQI-aware scheduling](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#sub-band-scheduling)                         | ✅ Supported | Optional sub-band CQI aware scheduling(**NR-v4.0**)                                         |
 | **🟩 CORE MAC FEATURES**                                                                                                          |             |                                                                                             |
-| [HARQ](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#harq)                                                                 | ✅ Supported | IR and CC methods; configurable max number of ReTx                                          |
+| [HARQ](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#harq)                                                                 | ✅ Supported | IR and CC methods; configurable max number of ReTx (**NR-v5.2**); retx reshaping and data in the RBGs left free (**NR-v5.2**) |
 | [Multiple HARQ processes per UE](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#harq)                                       | ✅ Supported | Configurable; defaults to 16                                                                |
 | [3GPP-compliant processing times](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#timing-relations)                          | ✅ Supported | NR K0/K1/K2 and N0/N1/N2 processing times                                                   |
 | [Adaptive Modulation and Coding (AMC)](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#adaptive-modulation-and-coding-model) | ✅ Supported | Error-model based and Shannon-based AMC                                                     |
 | UL grant-based access                                                                                                             | ✅ Supported | UL grant-based access scheme with scheduling request (SR)                                   |
-| UL BSR                                                                                                                            | ✅ Supported | 3GPP-compliant UL buffer status reporting                                                   |
+| UL BSR                                                                                                                            | ✅ Supported | 3GPP-compliant UL buffer status reporting; padding BSR (**NR-v5.2**) |
 | [BSR / SR / CQI / RI / PMI processing](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#scheduler)                            | ✅ Supported | BSR multiplexed with PUSCH; SR/CQI/RI/PMI in PUCCH                                          |
 | **🟨 ADVANCED FEATURES**                                                                                                          |             |                                                                                             |
 | [Notching mask](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#ufa-aka-notching)                                            | ✅ Supported | UFA masks per-BWP and per-cell; configurable notched RBGs                                   |
@@ -118,7 +119,8 @@ It is meant to be a compact, “at-a-glance” view, complementary to the detail
 | [SDAP](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#sdap-layer)                | ⚙️ Ongoing   | Maybe will be contributed soon                                                                                                                                 |
 | [RRC](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#rrc-layer)                  | ✅ Supported | Ideal and real RRC; RLF and handover (**NR-v5.0**); TR 36.839 handover failure model (**NR-v5.1**) |
 | [Multi-flow per UE](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#architecture) | ✅ Supported | Independent bearers                                                                                                                                            |
-| [EPC/5GC integration](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#epc-model)  | ✅ Supported | Via LTE-EPC model                                                                                                                                              |
+| [EPC/5GC integration](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#epc-model)  | ✅ Supported | Via LTE-EPC model; RAN-only helper to connect external cores; GTP-U PDU Session Container (**NR-v5.2**)                                                         |
+| Multiple core networks and roaming                                                     | ✅ Supported | Local breakout and home-routed roaming; S1-AP UE Context Release; external 5G core through nr-bridge (**NR-v5.2**)                                             |
 | Unstructured PDU sessions (non-IP)                                                     | ✅ Supported | 3GPP TS 23.501 5.6.1, one unstructured non-IP protocol per session (**NR-v5.2**)                                                                               |
 
 ---
@@ -127,7 +129,7 @@ It is meant to be a compact, “at-a-glance” view, complementary to the detail
 
 | Feature                                                                                                                            | Status       | Notes                                                                 |
 |------------------------------------------------------------------------------------------------------------------------------------|--------------|-----------------------------------------------------------------------|
-| [NGMN apps (FTP, video, gaming, VoIP)](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#ngmn-mixed-and-3gpp-xr-traffic-models) | ✅ Supported | NGMN-based traffic generators; NGMN mixed traffic model (**NR-v2.4**) |
+| [NGMN apps (FTP, video, gaming, VoIP)](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#ngmn-mixed-and-3gpp-xr-traffic-models) | ✅ Supported | NGMN-based traffic generators; NGMN mixed traffic model (**NR-v2.4**); per-frame VoIP, SeqTsSize header (**NR-v5.2**) |
 | [3GPP XR (VR/AR/CG)](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#ngmn-mixed-and-3gpp-xr-traffic-models)                   | ✅ Supported | 3GPP TR 38.838 XR traffic profiles; multi-flow XR models              |
 | [3GPP FTP (Model 1)](https://cttc-lena.gitlab.io/nr/manual/nr-module.html#ngmn-mixed-and-3gpp-xr-traffic-models)                   | ✅ Supported | 3GPP FTP Model 1; TR 36.814 (**NR-v1.2**)                             |
 | [ns-3 3GPP HTTP](https://www.nsnam.org/docs/models/html/applications.html#)                                                        | ✅ Supported | ns-3 3GPP HTTP model                                                  |
@@ -153,6 +155,7 @@ It is meant to be a compact, “at-a-glance” view, complementary to the detail
 
 | Feature                                                                                                      | Status    | Notes                                                               | Version     | Date         |
 |--------------------------------------------------------------------------------------------------------------|-----------|---------------------------------------------------------------------|-------------|--------------|
+| CI AI schedulers                                                                                         | ✅ Checked | Weekly job running every RL agent against the AI schedulers                 | **NR-v5.2** | Oct 11, 2026 |
 | CI Valgrind memcheck                                                                                     | ✅ Checked | Weekly valgrind memcheck job                                                | **NR-v5.1** | Jul 29, 2026 |
 | CI MemorySanitizer                                                                                       | ✅ Checked | Weekly MemorySanitizer job                                                  | **NR-v5.1** | Jul 22, 2026 |
 | CI Lizard complexity                                                                                     | ✅ Checked | Fails MRs that raise max cyclomatic complexity or add duplicate code blocks | **NR-v5.0** | Jun 22, 2026 |
