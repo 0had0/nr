@@ -14,6 +14,8 @@
 #include "ns3/test.h"
 
 #include <algorithm>
+#include <set>
+#include <utility>
 #include <vector>
 
 /**
@@ -54,6 +56,7 @@ struct Result
     uint64_t dlTbs{0};              ///< DL TBs scheduled, including retransmissions
     uint64_t dlAcks{0};             ///< DL HARQ ACKs
     uint64_t dlNacks{0};            ///< DL HARQ NACKs
+    uint64_t dlLostRetx{0};         ///< DL NACKs whose process moved on without a retransmission
 };
 
 /// Traffic start, leaving time for the UEs to connect
@@ -243,11 +246,24 @@ RunUdpScenario(const Scenario& scenario)
         ->TraceConnectWithoutContext("DlScheduling",
                                      Callback<void, NrSchedulingCallbackInfo>(
                                          [&result](NrSchedulingCallbackInfo) { result.dlTbs++; }));
+    std::set<std::pair<uint16_t, uint8_t>> pendingNacks;
     NrHelper::GetGnbMac(gnbDevs.Get(0), 0)
         ->TraceConnectWithoutContext(
             "DlHarqFeedback",
-            Callback<void, const DlHarqInfo&>([&result](const DlHarqInfo& info) {
+            Callback<void, const DlHarqInfo&>([&result, &pendingNacks](const DlHarqInfo& info) {
                 info.IsReceivedOk() ? result.dlAcks++ : result.dlNacks++;
+                // A process with a NACK must retransmit before reporting a new TB
+                const auto key = std::make_pair(info.m_rnti, info.m_harqProcessId);
+                const auto nack = pendingNacks.find(key);
+                if (nack != pendingNacks.end())
+                {
+                    result.dlLostRetx += info.m_numRetx == 0 ? 1 : 0;
+                    pendingNacks.erase(nack);
+                }
+                if (!info.IsReceivedOk())
+                {
+                    pendingNacks.insert(key);
+                }
             }));
 
     nrHelper->AssignStreams({.assignEpc = true,
@@ -305,6 +321,41 @@ class NrUlStrandedRlcBytesTestCase : public TestCase
 
 /**
  * @ingroup test
+ * @brief A DL HARQ retransmission must survive a slot without DL symbols.
+ *
+ * A heavy UL takes every symbol of many slots, so the NACKs of a high MCS, which fails now and
+ * then, reach the scheduler in such slots, and can wait for symbols for several slots. The
+ * retransmission must wait for a later slot instead of being forgotten or expiring.
+ */
+class NrDlHarqRetxNoSymbolsTestCase : public TestCase
+{
+  public:
+    NrDlHarqRetxNoSymbolsTestCase()
+        : TestCase("DL HARQ retransmissions survive slots without DL symbols")
+    {
+    }
+
+  private:
+    void DoRun() override
+    {
+        Scenario scenario;
+        scenario.bandwidth = 100e6;
+        scenario.numerology = 2;
+        scenario.numUes = 4;
+        scenario.ulPacketSize = 1250;
+        scenario.ulInterval = MicroSeconds(350);
+        scenario.dlPacketSize = 1250;
+        scenario.dlInterval = MilliSeconds(1);
+        scenario.fixedDlMcs = 28;
+        const auto result = RunUdpScenario(scenario);
+
+        NS_TEST_ASSERT_MSG_GT(result.dlNacks, 0, "The scenario must have DL NACKs");
+        NS_TEST_EXPECT_MSG_EQ(result.dlLostRetx, 0, "DL HARQ retransmissions were forgotten");
+    }
+};
+
+/**
+ * @ingroup test
  * @brief Test suite for an issue of the UL and DL service on an all-flexible TDD pattern.
  *
  * There is a suite per issue, since a suite stops at its first failing test case.
@@ -325,6 +376,10 @@ class NrTddUlDlRegressionTestSuite : public TestSuite
     }
 };
 
+/// Test suite of the DL HARQ retransmissions in slots without DL symbols
+static NrTddUlDlRegressionTestSuite g_nrDlHarqRetxNoSymbolsTestSuite(
+    "nr-dl-harq-retx-no-symbols",
+    new NrDlHarqRetxNoSymbolsTestCase());
 /// Test suite of issue #298
 static NrTddUlDlRegressionTestSuite g_nrUlStrandedRlcBytesTestSuite(
     "nr-ul-stranded-rlc-bytes",

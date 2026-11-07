@@ -1217,7 +1217,10 @@ NrMacSchedulerNs3::ResetExpiredHARQ(uint16_t rnti, NrMacHarqVector* harq)
         HarqProcess& process = harqIt->second;
         uint8_t processId = harqIt->first;
 
-        if (process.m_status == HarqProcess::INACTIVE)
+        // The timer covers feedback that never arrives. A process that got a NACK is waiting for
+        // symbols for its retransmission, which can take longer with a saturated UL.
+        if (process.m_status == HarqProcess::INACTIVE ||
+            process.m_status == HarqProcess::RECEIVED_FEEDBACK)
         {
             continue;
         }
@@ -2578,6 +2581,11 @@ NrMacSchedulerNs3::DoScheduleDl(const std::vector<DlHarqInfo>& dlHarqFeedback,
     {
         NS_LOG_WARN("No symbols available for DL data TX/RX.");
         LogUesWithPendingDlSignalingTraffic(*activeDlUe);
+        // MergeHARQ() emptied the buffer of pending retransmissions, so without this they
+        // would never be scheduled
+        m_dlHarqToRetransmit.insert(m_dlHarqToRetransmit.end(),
+                                    dlHarqFeedback.begin(),
+                                    dlHarqFeedback.end());
         return 0;
     }
 
