@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <set>
 
 namespace ns3
 {
@@ -486,6 +487,7 @@ NrMacSchedulerHarqRr::ScheduleUlHarq(
         uint8_t numSym;         ///< Number of symbols
         BeamId beamId;          ///< Beam of the UEs retransmitting in this span
         std::vector<bool> rbgs; ///< RBGs already used in this span
+        std::set<uint16_t> ues; ///< UEs retransmitting in this span
     };
 
     std::vector<RetxSpan> spans;
@@ -518,7 +520,9 @@ NrMacSchedulerHarqRr::ScheduleUlHarq(
         uint8_t numSym = dciInfoReTx->m_numSym;
         std::vector<bool> rbgs = dciInfoReTx->m_rbgBitmask;
         auto span = std::find_if(spans.begin(), spans.end(), [&](const RetxSpan& sp) {
-            if (sp.numSym != numSym || sp.beamId != beamId || sp.rbgs.size() != rbgs.size())
+            // A UE transmits a single PUSCH at a time
+            if (sp.numSym != numSym || sp.beamId != beamId || sp.rbgs.size() != rbgs.size() ||
+                sp.ues.count(rnti) > 0)
             {
                 return false;
             }
@@ -557,7 +561,7 @@ NrMacSchedulerHarqRr::ScheduleUlHarq(
             startingPoint->m_sym -= numSym;
             slotAlloc->m_numSymAlloc += numSym;
             spans.push_back(
-                {startingPoint->m_sym, numSym, beamId, std::vector<bool>(rbgs.size(), false)});
+                {startingPoint->m_sym, numSym, beamId, std::vector<bool>(rbgs.size(), false), {}});
             span = std::prev(spans.end());
         }
 
@@ -567,6 +571,7 @@ NrMacSchedulerHarqRr::ScheduleUlHarq(
             {
                 span->rbgs[rbg] = span->rbgs[rbg] || rbgs[rbg];
             }
+            span->ues.insert(rnti);
 
             NS_ASSERT(dciInfoReTx->m_format == DciInfoElementTdma::UL);
 

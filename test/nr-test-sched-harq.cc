@@ -80,7 +80,7 @@ class TestSchedSapUserHarq : public NrMacSchedSapUser
     TestSchedSapUserHarq(
         std::function<void(const struct SchedConfigIndParameters&)> schedConfigIndCallback =
             [](auto params) {},
-        std::function<uint32_t(void)> symbolsPerSlotCallback = []() { return 14; })
+        std::function<uint32_t()> symbolsPerSlotCallback = []() { return 14; })
         : NrMacSchedSapUser(),
           m_schedConfigIndCallback(schedConfigIndCallback),
           m_symbolsPerSlotCallback(symbolsPerSlotCallback)
@@ -1437,7 +1437,8 @@ NrHarqRetxSchedulerCase::DoRun()
  * do not overlap, ScheduleUlHarq() must place both retransmissions on the same
  * symbols, frequency multiplexed as in their first transmission. Otherwise they
  * need 16 of the 13 UL data symbols, so the second one must be reshaped into the
- * 5 symbols left over the whole band, keeping its TBS.
+ * 5 symbols left over the whole band, keeping its TBS. Two retransmissions of one UE never
+ * share symbols, since a UE sends a single PUSCH at a time.
  */
 class NrTestMacSchedulerHarqRrUlSharing : public TestCase
 {
@@ -1446,13 +1447,15 @@ class NrTestMacSchedulerHarqRrUlSharing : public TestCase
      * @brief Constructor
      * @param sameBeam whether both UEs are in the same beam
      * @param disjointRbgs whether the UEs' RBGs are disjoint
+     * @param sameUe whether both retransmissions belong to a single UE
      */
-    NrTestMacSchedulerHarqRrUlSharing(bool sameBeam, bool disjointRbgs)
-        : TestCase(std::string("UL HARQ retransmissions in ") +
+    NrTestMacSchedulerHarqRrUlSharing(bool sameBeam, bool disjointRbgs, bool sameUe = false)
+        : TestCase(std::string("UL HARQ retransmissions ") + (sameUe ? "of one UE " : "") + "in " +
                    (sameBeam ? "the same beam" : "different beams") + " on " +
                    (disjointRbgs ? "disjoint" : "overlapping") + " RBGs"),
           m_sameBeam(sameBeam),
-          m_disjointRbgs(disjointRbgs)
+          m_disjointRbgs(disjointRbgs),
+          m_sameUe(sameUe)
     {
     }
 
@@ -1468,6 +1471,7 @@ class NrTestMacSchedulerHarqRrUlSharing : public TestCase
 
     bool m_sameBeam;                               //!< Whether both UEs share a beam
     bool m_disjointRbgs;                           //!< Whether the UEs' RBGs are disjoint
+    bool m_sameUe;                                 //!< Whether a single UE retransmits twice
     bool m_checked{false};                         //!< Set once the scheduler reports a slot
     static constexpr uint8_t m_symbolsPerSlot{14}; //!< Symbols available in the slot
     static constexpr uint8_t m_numSym{8};          //!< Symbols per retransmission
@@ -1506,8 +1510,8 @@ NrTestMacSchedulerHarqRrUlSharing::CheckSchedule(
                                     "Retransmission placed past the end of the slot");
     }
 
-    // Sharing needs both a common beam and disjoint RBGs
-    const bool shared = m_sameBeam && m_disjointRbgs;
+    // Sharing needs a common beam, disjoint RBGs and two different UEs
+    const bool shared = m_sameBeam && m_disjointRbgs && !m_sameUe;
     if (shared)
     {
         for (const auto& dci : retx)
@@ -1587,7 +1591,7 @@ NrTestMacSchedulerHarqRrUlSharing::DoRun()
     paramsUlTrigger.m_slotType = LteNrTddSlotType::UL;
     for (size_t i = 0; i < rntis.size(); ++i)
     {
-        const auto rnti = rntis.at(i);
+        const auto rnti = m_sameUe ? rntis.front() : rntis.at(i);
         const auto harqId = static_cast<uint8_t>(i);
         auto& ueInfo = sched->m_ueMap.find(rnti)->second;
         auto& harqProcess = ueInfo->m_ulHarq.Find(harqId)->second;
@@ -2774,6 +2778,8 @@ class NrTestSchedHarqSuite : public TestSuite
         AddTestCase(new NrTestMacSchedulerHarqRrOfdmaSharing(false /* not consolidated */),
                     Duration::QUICK);
         AddTestCase(new NrTestMacSchedulerHarqRrOfdmaSharing(true /* consolidated */),
+                    Duration::QUICK);
+        AddTestCase(new NrTestMacSchedulerHarqRrUlSharing(true, true, true /* one UE */),
                     Duration::QUICK);
         for (bool sameBeam : {true, false})
         {
