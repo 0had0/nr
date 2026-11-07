@@ -20,15 +20,14 @@ NS_OBJECT_ENSURE_REGISTERED(NrMacSchedulerOfdmaSymbolPerBeamPF);
 TypeId
 NrMacSchedulerOfdmaSymbolPerBeam::GetTypeId()
 {
-    static TypeId tid =
-        TypeId("ns3::NrMacSchedulerONrMacSchedulerOfdmaSymbolPerBeam").SetParent<Object>();
+    static TypeId tid = TypeId("ns3::NrMacSchedulerOfdmaSymbolPerBeam").SetParent<Object>();
     return tid;
 }
 
 TypeId
 NrMacSchedulerOfdmaSymbolPerBeamLB::GetTypeId()
 {
-    static TypeId tid = TypeId("ns3::NrMacSchedulerONrMacSchedulerOfdmaSymbolPerBeamLB")
+    static TypeId tid = TypeId("ns3::NrMacSchedulerOfdmaSymbolPerBeamLB")
                             .SetParent<NrMacSchedulerOfdmaSymbolPerBeam>()
                             .AddConstructor<NrMacSchedulerOfdmaSymbolPerBeamLB>();
     return tid;
