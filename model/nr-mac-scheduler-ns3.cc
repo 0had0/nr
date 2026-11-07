@@ -548,7 +548,7 @@ void
 NrMacSchedulerNs3::SortUlHarq(NrMacSchedulerNs3::ActiveHarqMap* activeUlHarq) const
 {
     NS_LOG_FUNCTION(this);
-    m_schedHarq->SortDlHarq(activeUlHarq);
+    m_schedHarq->SortUlHarq(activeUlHarq);
 }
 
 uint8_t
