@@ -447,6 +447,14 @@ NrRlcUm::DoNotifyTxOpportunity(NrMacSapUser::TxOpportunityParameters txOpParams)
     NS_LOG_INFO("Forward RLC PDU to MAC Layer");
     m_macSapProvider->TransmitPdu(params);
 
+    // The reported queue only accounts for one header per SDU, while every segment takes one, so
+    // the MAC's count of the queue can reach zero with data left here. Report what is left, so
+    // that the MAC keeps serving it instead of waiting for the BSR timer.
+    if (!m_txBuffer.empty())
+    {
+        DoTransmitBufferStatusReport();
+    }
+
     RestartBsrTimer();
 }
 

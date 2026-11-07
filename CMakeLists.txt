@@ -545,6 +545,7 @@ set(test_sources
     test/nr-test-sched.cc
     test/nr-test-sfnsf.cc
     test/nr-test-subband.cc
+    test/nr-test-tdd-ul-dl-regression.cc
     test/nr-test-timings.cc
     test/nr-test-ue-mac-status.cc
     test/nr-test-ul-mimo-cqi.cc
