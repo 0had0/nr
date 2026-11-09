@@ -647,19 +647,15 @@ NrMacSchedulerHarqRr::SortDlHarq(NrMacSchedulerNs3::ActiveHarqMap* activeDlHarq)
 }
 
 /**
- * @brief (In theory) sort UL HARQ retx
+ * @brief Sort Ul Harq retx based on their symbol requirement
  * @param activeUlHarq map of the active retx
  *
- * Since in the uplink we are still TDMA, there is no need of sorting
- * the HARQ. The HARQ will be picked one by one until there are no
- * available symbol to transmit, and what is not transmitted will be queued
- * for the next slot.
  */
 void
-NrMacSchedulerHarqRr::SortUlHarq(
-    [[maybe_unused]] NrMacSchedulerNs3::ActiveHarqMap* activeUlHarq) const
+NrMacSchedulerHarqRr::SortUlHarq(NrMacSchedulerNs3::ActiveHarqMap* activeUlHarq) const
 {
     NS_LOG_FUNCTION(this);
+    SortDlHarq(activeUlHarq); // We reuse DL sort
 }
 
 /**
