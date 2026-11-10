@@ -326,6 +326,7 @@ class NR_EXPORT NrInitialAssociation : public Object
     Ptr<NetDevice> m_associatedGnb{nullptr}; ///< gNB with which m_ueDevice is associated
 
     std::vector<NrAnglePair> m_bestBfVectors; ///< vector of best BF vectors from gNBs to UE
+    std::vector<uint8_t> m_bestPanels;        ///< vector of best UE panels towards each gNB
     PhasedArrayModel::ComplexVector m_beamformingVector; ///< Beamforming vector resulting in
                                                          ///< highest RSRP with the associated gNB
     std::vector<double> m_rowBeamAngles; ///< Set of row angles in degrees of beamforming

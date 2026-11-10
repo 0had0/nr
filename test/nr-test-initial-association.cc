@@ -7,7 +7,7 @@
  * @file nr-test-initial-association.cc
  *
  * @brief Test suite `nr-initial-association`: checks the per-gNB RSRP and best beam computed by
- * NrInitialAssociation.
+ * NrInitialAssociation, and the UE panel it activates.
  */
 
 #include "ns3/antenna-module.h"
@@ -140,6 +140,150 @@ NrInitialAssociationOwnBeamTestCase::DoRun()
 }
 
 /**
+ * Run the initial association of a UE with the 60 and 120 degree beam grid.
+ *
+ * @param ueDevice The UE device.
+ * @param gnbDevices The gNB devices to scan.
+ * @return The initial association object, after its search.
+ */
+static Ptr<NrInitialAssociation>
+Associate(Ptr<NetDevice> ueDevice, const NetDeviceContainer& gnbDevices)
+{
+    const std::vector<double> beamAngles{60, 120};
+    auto association = CreateObject<NrInitialAssociation>();
+    association->AssignStreams(1);
+    association->SetUeDevice(ueDevice);
+    association->SetGnbDevices(gnbDevices);
+    association->SetRowBeamAngles(beamAngles);
+    association->SetColBeamAngles(beamAngles);
+    association->FindAssociatedGnb();
+    return association;
+}
+
+/**
+ * @ingroup nr-test
+ *
+ * @brief Verifies that a UE with two panels ends up on the best panel of the gNB it associates
+ * with.
+ *
+ * The UE has one panel facing +x (panel 0) and one facing -x (panel 1). The near gNB, 20 m away
+ * in +x, faces away from the UE, so its beams are weak but its path loss is small: it has the
+ * highest RSRP, through panel 0. The far gNB, 1 km away in -x, faces the UE, so it has the
+ * strongest beam before the path loss, through panel 1.
+ */
+class NrInitialAssociationActivePanelTestCase : public TestCase
+{
+  public:
+    NrInitialAssociationActivePanelTestCase()
+        : TestCase("Two-panel UE: active panel of the associated gNB")
+    {
+    }
+
+  private:
+    void DoRun() override;
+
+    /**
+     * Check the active panel of the UE after associating it with each gNB alone, then with both.
+     *
+     * @param ue The UE device.
+     * @param gnbDevices The near and far gNB devices.
+     */
+    void CheckPanels(Ptr<NetDevice> ue, const NetDeviceContainer& gnbDevices);
+
+    static constexpr uint32_t m_nearIdx{0}; ///< Index of the near gNB
+    static constexpr uint32_t m_farIdx{1};  ///< Index of the far gNB
+};
+
+void
+NrInitialAssociationActivePanelTestCase::CheckPanels(Ptr<NetDevice> ue,
+                                                     const NetDeviceContainer& gnbDevices)
+{
+    // Check the setup: the best panel of each gNB, when it is the only one
+    auto nearAssociation = Associate(ue, NetDeviceContainer(gnbDevices.Get(m_nearIdx)));
+    NS_TEST_ASSERT_MSG_EQ(nearAssociation->GetUeActivePanel(),
+                          0,
+                          "The near gNB should be best received by panel 0");
+    auto farAssociation = Associate(ue, NetDeviceContainer(gnbDevices.Get(m_farIdx)));
+    NS_TEST_ASSERT_MSG_EQ(farAssociation->GetUeActivePanel(),
+                          1,
+                          "The far gNB should be best received by panel 1");
+
+    auto association = Associate(ue, gnbDevices);
+    NS_TEST_ASSERT_MSG_GT(association->GetMaxRsrp(m_nearIdx),
+                          association->GetMaxRsrp(m_farIdx),
+                          "The near gNB should have the highest RSRP");
+    NS_TEST_EXPECT_MSG_EQ(association->GetAssociatedGnb(),
+                          gnbDevices.Get(m_nearIdx),
+                          "The UE should associate with the near gNB");
+    NS_TEST_EXPECT_MSG_EQ(association->GetUeActivePanel(),
+                          0,
+                          "The UE should activate the best panel of its associated gNB");
+}
+
+void
+NrInitialAssociationActivePanelTestCase::DoRun()
+{
+    Config::Reset();
+    RngSeedManager::SetSeed(1);
+    RngSeedManager::SetRun(1);
+
+    NodeContainer gnbNodes;
+    gnbNodes.Create(2);
+    NodeContainer ueNodes;
+    ueNodes.Create(1);
+
+    auto positions = CreateObject<ListPositionAllocator>();
+    positions->Add(Vector(20, 0, 25));
+    positions->Add(Vector(-1000, 0, 25));
+    positions->Add(Vector(0, 0, 1.5));
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    mobility.SetPositionAllocator(positions);
+    mobility.Install(gnbNodes);
+    mobility.Install(ueNodes);
+
+    auto epcHelper = CreateObject<NrPointToPointEpcHelper>();
+    auto nrHelper = CreateObject<NrHelper>();
+    nrHelper->SetEpcHelper(epcHelper);
+    // Both gNBs keep the default bearing angle, facing +x: the near one faces away from the UE
+    // and the far one faces it
+    nrHelper->SetGnbAntennaAttribute("NumRows", UintegerValue(4));
+    nrHelper->SetGnbAntennaAttribute("NumColumns", UintegerValue(4));
+    nrHelper->SetGnbAntennaAttribute("AntennaElement",
+                                     PointerValue(CreateObject<ThreeGppAntennaModel>()));
+    // The first UE panel faces +x, and the second one -x
+    nrHelper->SetUeSpectrumAttribute("NumAntennaPanel", UintegerValue(2));
+    nrHelper->SetUeAntennaAttribute("NumRows", UintegerValue(1));
+    nrHelper->SetUeAntennaAttribute("NumColumns", UintegerValue(1));
+    nrHelper->SetUeAntennaAttribute("AntennaElement",
+                                    PointerValue(CreateObject<ThreeGppAntennaModel>()));
+
+    auto channelHelper = CreateObject<NrChannelHelper>();
+    channelHelper->ConfigureFactories("UMa", "LOS", "ThreeGpp");
+    channelHelper->SetPathlossAttribute("ShadowingEnabled", BooleanValue(false));
+
+    CcBwpCreator ccBwpCreator;
+    CcBwpCreator::SimpleOperationBandConf bandConf(3.5e9, 20e6, 1);
+    auto band = ccBwpCreator.CreateOperationBandContiguousCc(bandConf);
+    channelHelper->AssignChannelsToBands({band});
+    auto allBwps = CcBwpCreator::GetAllBwps({band});
+
+    auto gnbDevices = nrHelper->InstallGnbDevice(gnbNodes, allBwps);
+    auto ueDevices = nrHelper->InstallUeDevice(ueNodes, allBwps);
+    nrHelper->AssignStreams({.gnbDevs = gnbDevices});
+    nrHelper->AssignStreams({.ueDevs = ueDevices});
+
+    Simulator::Schedule(MilliSeconds(1),
+                        &NrInitialAssociationActivePanelTestCase::CheckPanels,
+                        this,
+                        ueDevices.Get(0),
+                        gnbDevices);
+    Simulator::Stop(MilliSeconds(2));
+    Simulator::Run();
+    Simulator::Destroy();
+}
+
+/**
  * @ingroup nr-test
  *
  * @brief Test suite for NrInitialAssociation.
@@ -152,6 +296,7 @@ class NrInitialAssociationTestSuite : public TestSuite
     {
         AddTestCase(new NrInitialAssociationOwnBeamTestCase(true), Duration::QUICK);
         AddTestCase(new NrInitialAssociationOwnBeamTestCase(false), Duration::QUICK);
+        AddTestCase(new NrInitialAssociationActivePanelTestCase(), Duration::QUICK);
     }
 };
 

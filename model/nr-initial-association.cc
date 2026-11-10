@@ -349,7 +349,7 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
     auto& chParams = lsps.chParams;
     auto& mobility = lsps.mobility;
     auto& antennas = lsps.antennaArrays;
-    uint8_t activePanelIndex = GetUeActivePanel();
+    uint8_t bestPanelIndex = GetUeActivePanel();
     antennas.gnbArrayModel = ExtractGnbParameters(gnbDevice, lsps);
 
     NS_ASSERT_MSG(chParams.spectralModel->GetNumBands() >= m_numBandsSsb,
@@ -374,8 +374,8 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
     }
 
     auto gnbTxPower = DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(0)->GetTxPower();
-    // Compute the received power of each UE panel and gNB beam. The strongest beam of this gNB
-    // sets its RSRP and best beam, and the strongest of all scanned gNBs sets the UE active panel.
+    // Compute the received power of each UE panel and gNB beam. The strongest pair of this gNB
+    // sets its RSRP, best beam and best UE panel.
     double localMax = 0.0;
     for (size_t k = 0; k < antennas.ueArrayModel.size(); k++)
     {
@@ -405,12 +405,7 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
                 {
                     localMax = eng;
                     bfAngles = {m_rowBeamAngles[j], m_colBeamAngles[i]};
-                }
-                if (eng > lsps.maxPsdFound)
-                {
-                    lsps.maxPsdFound = eng;
-                    activePanelIndex =
-                        k; // active panel has to be update to K as better beam has found
+                    bestPanelIndex = k;
                 }
             }
         }
@@ -418,7 +413,7 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
     auto attenuation =
         chParams.pathLossModel->CalcRxPower(0, mobility.gnbMobility, mobility.ueMobility);
     m_bestBfVectors.push_back(bfAngles);
-    SetUeActivePanel(activePanelIndex);
+    m_bestPanels.push_back(bestPanelIndex);
     return pow(10.0, attenuation / 10.0) * localMax;
 }
 
@@ -662,6 +657,7 @@ NrInitialAssociation::FindAssociatedGnb()
                                                  m_bestBfVectors[i].colAng,
                                                  localParams.antennaArrays.gnbArrayModel);
             m_rsrpAsscGnb = m_maxRsrps[i];
+            SetUeActivePanel(m_bestPanels[i]);
             return std::make_pair(m_associatedGnb, m_rsrpAsscGnb);
         }
     }

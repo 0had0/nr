@@ -109,6 +109,7 @@ us a note on ns-developers mailing list.
 - When a transport block is decoded with the MIMO SINR, the SINR reported in ``RxPacketTraceParams`` (``RxPacketTrace.txt``) is now the per-layer MIMO SINR passed to the error model, averaged over the allocated RBs and layers, instead of the SISO SINR derived from the received PSD. The SISO value aggregates the power of all layers and ignores inter-layer interference, so it did not match the reported TBLER, e.g., overestimating the SINR of rank-2 transmissions.
 - ``NrRlcUm`` now reports its buffer status after every transmission opportunity that leaves data in its queue. The reported size counts one header per SDU while each segment takes one, so the UE MAC could consider the queue empty with data left in the RLC, pad the rest of the grant and report an empty buffer, delaying the rest of the SDU by ``NrRlcUm::BufferStatusReportTimer``. The output of simulations using RLC UM changes accordingly.
 - The scheduler now keeps the DL HARQ retransmissions of a slot without symbols for DL, because UL took them all, for a later slot. They used to be dropped, leaving the HARQ process waiting for its timer and the RLC waiting for a PDU that would never arrive. A HARQ process waiting for its retransmission also no longer expires by the timer, which only covers feedback that never arrives.
+- The initial association activates the UE panel that best receives the associated gNB, instead of the panel that best receives the strongest beam of all the scanned gNBs before the path loss.
 
 ## Changes from NR-v5.0 to v5.1
 
