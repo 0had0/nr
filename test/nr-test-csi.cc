@@ -52,9 +52,13 @@
 #include "ns3/position-allocator.h"
 #include "ns3/propagation-delay-model.h"
 #include "ns3/rng-seed-manager.h"
+#include "ns3/string.h"
 #include "ns3/test.h"
 #include "ns3/udp-client-server-helper.h"
 #include "ns3/uinteger.h"
+
+#include <algorithm>
+#include <map>
 
 nlohmann::json outputJson;
 
@@ -1258,6 +1262,134 @@ NrCsiRsAfterCellChangeTestCase::DoRun()
 /**
  * @ingroup test
  *
+ * Test the order of the CSI-RS transmissions towards the UEs sharing a CSI-RS
+ * offset. The gNB used to keep these UEs in a set ordered by pointer, so the
+ * order of their CSI-RS within the slot depended on the memory layout. The test
+ * makes the device allocation order the reverse of the IMSI order, puts all UEs
+ * on the same offset, and checks that every slot with CSI-RS transmits it
+ * towards all UEs, in increasing IMSI order.
+ */
+class NrCsiRsOrderTestCase : public TestCase
+{
+  public:
+    NrCsiRsOrderTestCase()
+        : TestCase("CSI-RS towards the UEs of the same offset is ordered by IMSI")
+    {
+    }
+
+  private:
+    void DoRun() override;
+};
+
+void
+NrCsiRsOrderTestCase::DoRun()
+{
+    RngSeedManager::SetSeed(1);
+    RngSeedManager::SetRun(1);
+    const uint32_t numUes = 6;
+
+    NodeContainer gnbContainer(1);
+    NodeContainer ueContainer(numUes);
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    mobility.Install(gnbContainer);
+    mobility.Install(ueContainer);
+    gnbContainer.Get(0)->GetObject<MobilityModel>()->SetPosition(Vector(0, 0, 10));
+    for (uint32_t i = 0; i < ueContainer.GetN(); i++)
+    {
+        ueContainer.Get(i)->GetObject<MobilityModel>()->SetPosition(Vector(20, 5.0 * i, 1.5));
+    }
+
+    // The IMSI is the node ID, so installing the devices from the last node
+    // allocates them in the reverse IMSI order
+    NodeContainer reversedUes;
+    for (uint32_t i = numUes; i > 0; i--)
+    {
+        reversedUes.Add(ueContainer.Get(i - 1));
+    }
+
+    auto nrEpcHelper = CreateObject<NrPointToPointEpcHelper>();
+    auto idealBeamformingHelper = CreateObject<IdealBeamformingHelper>();
+    auto nrHelper = CreateObject<NrHelper>();
+    nrHelper->SetBeamformingHelper(idealBeamformingHelper);
+    nrHelper->SetEpcHelper(nrEpcHelper);
+    nrHelper->SetAttribute("UseIdealRrc", BooleanValue(true));
+    nrHelper->SetAttribute("CsiFeedbackFlags", UintegerValue(CQI_PDSCH_MIMO | CQI_CSI_RS));
+    idealBeamformingHelper->SetAttribute("BeamformingMethod",
+                                         TypeIdValue(DirectPathBeamforming::GetTypeId()));
+    nrHelper->SetGnbPhyAttribute("Numerology", UintegerValue(0));
+    // A single DL slot per CSI-RS period, so all UEs share the same offset
+    nrHelper->SetGnbPhyAttribute("Pattern", StringValue("DL|UL|UL|UL|UL|"));
+    nrHelper->SetGnbPhyAttribute("CsiRsPeriodicity", UintegerValue(5));
+
+    CcBwpCreator ccBwpCreator;
+    CcBwpCreator::SimpleOperationBandConf bandConf(3.5e9, 20e6, 1);
+    OperationBandInfo band = ccBwpCreator.CreateOperationBandContiguousCc(bandConf);
+    auto channelHelper = CreateObject<NrChannelHelper>();
+    channelHelper->ConfigureFactories("UMi", "LOS", "ThreeGpp");
+    channelHelper->AssignChannelsToBands({band});
+    auto allBwps = CcBwpCreator::GetAllBwps({band});
+
+    NetDeviceContainer gnbNetDev = nrHelper->InstallGnbDevice(gnbContainer, allBwps);
+    NetDeviceContainer ueNetDev = nrHelper->InstallUeDevice(reversedUes, allBwps);
+    nrHelper->AssignStreams({.assignEpc = true, .gnbDevs = gnbNetDev, .ueDevs = ueNetDev});
+
+    InternetStackHelper internet;
+    internet.Install(ueContainer);
+    nrEpcHelper->AssignUeIpv4Address(ueNetDev);
+    for (uint32_t i = 0; i < ueNetDev.GetN(); i++)
+    {
+        nrHelper->AttachToGnb(ueNetDev.Get(i), gnbNetDev.Get(0));
+    }
+
+    // Record the RNTI of each CSI-RS, grouped by slot
+    std::map<int64_t, std::vector<uint16_t>> csiRsRntisPerSlot;
+    auto channel = DynamicCast<NrGnbNetDevice>(gnbNetDev.Get(0))
+                       ->GetPhy(0)
+                       ->GetSpectrumPhy()
+                       ->GetSpectrumChannel();
+    channel->TraceConnectWithoutContext(
+        "TxSigParams",
+        MakeCallback(+[](std::map<int64_t, std::vector<uint16_t>>* rntis,
+                         Ptr<SpectrumSignalParameters> params) {
+            if (auto csiRs = DynamicCast<NrSpectrumSignalParametersCsiRs>(params))
+            {
+                (*rntis)[Simulator::Now().GetMilliSeconds()].push_back(csiRs->rnti);
+            }
+        }).Bind(&csiRsRntisPerSlot));
+
+    Simulator::Stop(MilliSeconds(300));
+    Simulator::Run();
+
+    std::map<uint16_t, uint64_t> rntiToImsi;
+    for (uint32_t i = 0; i < ueNetDev.GetN(); i++)
+    {
+        auto ueDev = DynamicCast<NrUeNetDevice>(ueNetDev.Get(i));
+        rntiToImsi[ueDev->GetPhy(0)->GetRnti()] = ueDev->GetImsi();
+    }
+    NS_TEST_ASSERT_MSG_EQ(rntiToImsi.size(), numUes, "Every UE should have its own RNTI");
+
+    uint32_t fullSlots = 0;
+    for (const auto& [slot, rntis] : csiRsRntisPerSlot)
+    {
+        std::vector<uint64_t> imsis;
+        for (auto rnti : rntis)
+        {
+            NS_TEST_ASSERT_MSG_EQ(rntiToImsi.contains(rnti), true, "CSI-RS towards unknown RNTI");
+            imsis.push_back(rntiToImsi.at(rnti));
+        }
+        NS_TEST_EXPECT_MSG_EQ(std::is_sorted(imsis.begin(), imsis.end()),
+                              true,
+                              "CSI-RS at " << slot << " ms is not in increasing IMSI order");
+        fullSlots += imsis.size() == numUes ? 1 : 0;
+    }
+    NS_TEST_EXPECT_MSG_GT(fullSlots, 0, "No slot transmitted CSI-RS towards all UEs");
+    Simulator::Destroy();
+}
+
+/**
+ * @ingroup test
+ *
  * Test CSI-RS and CSI-IM feedback with a propagation delay. The gNB transmits
  * the CSI-RS at the end of the DL control, so with a propagation delay the UE
  * receives it after the DL control of the slot ended, on the UE timeline. The
@@ -1475,6 +1607,7 @@ NrCsiMobilityTestSuite::NrCsiMobilityTestSuite()
     AddTestCase(new NrCsiRsAfterCellChangeTestCase(true), Duration::QUICK);
     AddTestCase(new NrCsiRsAfterCellChangeTestCase(false), Duration::QUICK);
     AddTestCase(new NrCsiRsPropagationDelayTestCase(), Duration::QUICK);
+    AddTestCase(new NrCsiRsOrderTestCase(), Duration::QUICK);
 }
 
 // Allocate an instance of each TestSuite
