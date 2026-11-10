@@ -373,7 +373,6 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
         i->SetBeamformingVector(uebfVector);
     }
 
-    auto gnbTxPower = DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(0)->GetTxPower();
     // Compute the received power of each UE panel and gNB beam. The strongest pair of this gNB
     // sets its RSRP, best beam and best UE panel.
     double localMax = 0.0;
@@ -400,7 +399,8 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
                     // out-of-range (see DistanceBasedThreeGppSpectrumPropagationLossModel)
                     continue;
                 }
-                auto eng = gnbTxPower * ComputeRxPsd(rxParam);
+                // The channel matrix already carries the PSD of the gNB transmit power
+                auto eng = ComputeRxPsd(rxParam);
                 if (eng > localMax)
                 {
                     localMax = eng;
@@ -446,8 +446,6 @@ NrInitialAssociation::ComputeMaxRsrpClean(const Ptr<NetDevice>& gnbDevice,
         i->SetBeamformingVector(uebfVector);
     }
 
-    auto gnbTxPower = DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(0)->GetTxPower();
-
     // Reset per-gNB so prior cells don't bleed into the running max.
     lsps.maxPsdFound = 0;
 
@@ -473,7 +471,8 @@ NrInitialAssociation::ComputeMaxRsrpClean(const Ptr<NetDevice>& gnbDevice,
                 {
                     continue;
                 }
-                auto eng = gnbTxPower * ComputeRxPsd(rxParam);
+                // The channel matrix already carries the PSD of the gNB transmit power
+                auto eng = ComputeRxPsd(rxParam);
                 if (eng > lsps.maxPsdFound)
                 {
                     lsps.maxPsdFound = eng;

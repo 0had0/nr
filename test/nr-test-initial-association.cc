@@ -286,6 +286,123 @@ NrInitialAssociationActivePanelTestCase::DoRun()
 /**
  * @ingroup nr-test
  *
+ * @brief Verifies that the RSRP of each gNB follows its transmit power.
+ *
+ * Three co-located gNBs with the same single-element antenna only differ in their transmit
+ * power, so their RSRPs should differ by their transmit power difference, up to the fading of
+ * their independent channels. One of them transmits below 0 dBm.
+ */
+class NrInitialAssociationTxPowerTestCase : public TestCase
+{
+  public:
+    NrInitialAssociationTxPowerTestCase()
+        : TestCase("RSRP follows the gNB transmit power")
+    {
+    }
+
+  private:
+    void DoRun() override;
+
+    /**
+     * Check the RSRP of each gNB found by the initial association of the UE.
+     *
+     * @param ue The UE device.
+     * @param gnbDevices The gNB devices, in the order of m_txPowersDbm.
+     */
+    void CheckRsrps(Ptr<NetDevice> ue, const NetDeviceContainer& gnbDevices);
+
+    const std::vector<double> m_txPowersDbm{40, 1, -10}; ///< Transmit power of each gNB
+};
+
+void
+NrInitialAssociationTxPowerTestCase::CheckRsrps(Ptr<NetDevice> ue,
+                                                const NetDeviceContainer& gnbDevices)
+{
+    auto association = CreateObject<NrInitialAssociation>();
+    association->AssignStreams(1);
+    association->SetUeDevice(ue);
+    association->SetGnbDevices(gnbDevices);
+    association->SetRowBeamAngles({90});
+    association->SetColBeamAngles({90});
+    const auto [associatedGnb, associatedRsrp] = association->FindAssociatedGnb();
+
+    NS_TEST_EXPECT_MSG_EQ(associatedGnb,
+                          gnbDevices.Get(0),
+                          "The UE should associate with the strongest gNB");
+    for (size_t i = 1; i < m_txPowersDbm.size(); i++)
+    {
+        NS_TEST_EXPECT_MSG_EQ_TOL(association->GetMaxRsrp(0) - association->GetMaxRsrp(i),
+                                  m_txPowersDbm[0] - m_txPowersDbm[i],
+                                  5.0,
+                                  "The RSRP difference to gNB "
+                                      << i << " should be the transmit power difference");
+    }
+}
+
+void
+NrInitialAssociationTxPowerTestCase::DoRun()
+{
+    Config::Reset();
+    RngSeedManager::SetSeed(1);
+    RngSeedManager::SetRun(1);
+
+    NodeContainer gnbNodes;
+    gnbNodes.Create(m_txPowersDbm.size());
+    NodeContainer ueNodes;
+    ueNodes.Create(1);
+
+    auto positions = CreateObject<ListPositionAllocator>();
+    for (size_t i = 0; i < m_txPowersDbm.size(); i++)
+    {
+        positions->Add(Vector(0, 0, 25));
+    }
+    positions->Add(Vector(100, 0, 1.5));
+    MobilityHelper mobility;
+    mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+    mobility.SetPositionAllocator(positions);
+    mobility.Install(gnbNodes);
+    mobility.Install(ueNodes);
+
+    auto epcHelper = CreateObject<NrPointToPointEpcHelper>();
+    auto nrHelper = CreateObject<NrHelper>();
+    nrHelper->SetEpcHelper(epcHelper);
+    nrHelper->SetGnbAntennaAttribute("NumRows", UintegerValue(1));
+    nrHelper->SetGnbAntennaAttribute("NumColumns", UintegerValue(1));
+    nrHelper->SetUeAntennaAttribute("NumRows", UintegerValue(1));
+    nrHelper->SetUeAntennaAttribute("NumColumns", UintegerValue(1));
+
+    auto channelHelper = CreateObject<NrChannelHelper>();
+    channelHelper->ConfigureFactories("UMa", "LOS", "ThreeGpp");
+    channelHelper->SetPathlossAttribute("ShadowingEnabled", BooleanValue(false));
+
+    CcBwpCreator ccBwpCreator;
+    CcBwpCreator::SimpleOperationBandConf bandConf(3.5e9, 20e6, 1);
+    auto band = ccBwpCreator.CreateOperationBandContiguousCc(bandConf);
+    channelHelper->AssignChannelsToBands({band});
+    auto allBwps = CcBwpCreator::GetAllBwps({band});
+
+    auto gnbDevices = nrHelper->InstallGnbDevice(gnbNodes, allBwps);
+    auto ueDevices = nrHelper->InstallUeDevice(ueNodes, allBwps);
+    nrHelper->AssignStreams({.gnbDevs = gnbDevices});
+    nrHelper->AssignStreams({.ueDevs = ueDevices});
+    for (size_t i = 0; i < m_txPowersDbm.size(); i++)
+    {
+        DynamicCast<NrGnbNetDevice>(gnbDevices.Get(i))->GetPhy(0)->SetTxPower(m_txPowersDbm[i]);
+    }
+
+    Simulator::Schedule(MilliSeconds(1),
+                        &NrInitialAssociationTxPowerTestCase::CheckRsrps,
+                        this,
+                        ueDevices.Get(0),
+                        gnbDevices);
+    Simulator::Stop(MilliSeconds(2));
+    Simulator::Run();
+    Simulator::Destroy();
+}
+
+/**
+ * @ingroup nr-test
+ *
  * @brief Test suite for NrInitialAssociation.
  */
 class NrInitialAssociationTestSuite : public TestSuite
@@ -297,6 +414,7 @@ class NrInitialAssociationTestSuite : public TestSuite
         AddTestCase(new NrInitialAssociationOwnBeamTestCase(true), Duration::QUICK);
         AddTestCase(new NrInitialAssociationOwnBeamTestCase(false), Duration::QUICK);
         AddTestCase(new NrInitialAssociationActivePanelTestCase(), Duration::QUICK);
+        AddTestCase(new NrInitialAssociationTxPowerTestCase(), Duration::QUICK);
     }
 };
 
