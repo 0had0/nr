@@ -1,0 +1,16 @@
+# Copyright (c) 2026 Centre Tecnologic de Telecomunicacions de Catalunya (CTTC)
+#
+# SPDX-License-Identifier: GPL-2.0-only
+
+# Thin layer over the official llama.cpp server image: add git + python, bake in the model.
+FROM ghcr.io/ggml-org/llama.cpp:server
+RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates python3 \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /models \
+    && curl -fL --retry 3 -o /models/maple.gguf \
+        https://huggingface.co/deepgrove/maple-preview-GGUF/resolve/main/maple-preview-TQ2_0-head-Q4_K.gguf
+# Official image keeps the binary in /app; expose it on PATH.
+RUN ln -sf /app/llama-server /usr/local/bin/llama-server
+ENV TRIAGE_MODEL=/models/maple.gguf \
+    LD_LIBRARY_PATH=/app
+ENTRYPOINT []
