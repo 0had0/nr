@@ -268,74 +268,36 @@ check-dead-urls:
   timeout: 1h
   allow_failure: true
 
-# MR triage: asks a local LLM (llama-server + Maple-Preview, both baked into the
-# image built by triage-image) whether a merge request should be split. Both jobs
-# run on CTTC runners. To change the model, edit tools/mr-triage/Dockerfile.triage.
-.mr-triage-variables:
-  variables:
-    TRIAGE_IMAGE: $CI_REGISTRY_IMAGE/mr-triage:maple
-
-# Builds the triage image when its Dockerfile changes, or on manual pipelines,
-# unless the registry already has it.
-# Buildah needs no Docker daemon, so no dind service: the CTTC runners do not
-# support the container links that GitLab services rely on.
-triage-image:
-  extends: .mr-triage-variables
-  stage: code-linting
-  image: quay.io/buildah/stable
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "web"'
-    - changes:
-        - tools/mr-triage/Dockerfile.triage
-  variables:
-    # Run without privileges inside the job container
-    BUILDAH_ISOLATION: chroot
-    STORAGE_DRIVER: vfs
-  script:
-    - echo "$CI_REGISTRY_PASSWORD" | buildah login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-    # skopeo checks the registry without pulling the image
-    - dnf install -y -q skopeo > /dev/null
-    - if skopeo inspect --raw "docker://$TRIAGE_IMAGE" > /dev/null 2>&1; then
-        echo "$TRIAGE_IMAGE already exists; skipping build";
-        exit 0;
-      fi
-    - buildah build -f tools/mr-triage/Dockerfile.triage
-      -t "$TRIAGE_IMAGE" tools/mr-triage
-    - buildah push "$TRIAGE_IMAGE"
-  timeout: 1h
-  tags:
-    - CTTC
-
+# MR review: an agent (Claude Code) driven by the self-hosted LLM reviews the merge
+# request: scope and how to split it, references to earlier code (rejection), hard to
+# read constructs, undocumented changes, messages and documentation matching the code,
+# duplicate functions, brevity of documentation and notes. See
+# tools/mr-triage/mr-triage.py. The agent and its proxy are pip packages, installed by
+# the job: the job sandbox of the runners cannot build container images. REVIEW_LLM_URL
+# is the base URL of an OpenAI-compatible API; it defaults to the job variable below and
+# can be overridden in the CI/CD settings of the project or as a pipeline variable. The
+# job log has the verdict and the reason for it; the artifact review.md is the full
+# review. The job fails if the MR is rejected. It runs on CTTC runners.
 mr-triage:
-  extends: .mr-triage-variables
   stage: code-linting
-  image:
-    name: $TRIAGE_IMAGE
-    entrypoint: [""]
+  image: python:3.12
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-  needs:
-    - job: triage-image
-      optional: true
+  before_script:
+    - pip install -q --root-user-action=ignore
+      claude-agent-sdk==0.2.183 "litellm[proxy]==1.109.1"
   script:
     - git fetch -q origin "$CI_MERGE_REQUEST_DIFF_BASE_SHA" || true
     - python3 -I tools/mr-triage/mr-triage.py
-  after_script:
-    - tail -n 30 llama-server.log || true
   artifacts:
     when: always
     expire_in: 1 week
     paths:
-      - triage.json
-      - llama-server.log
+      - review.md
   variables:
     GIT_DEPTH: 0
-    # mr-triage.py starts llama-server, sizing its context window to the MR;
-    # llama-server reads these, and the image defaults listen on all interfaces
-    LLAMA_ARG_HOST: 127.0.0.1
-    LLAMA_ARG_PORT: "8080"
-    TRIAGE_LLM_URL: http://127.0.0.1:8080
-  timeout: 2h
+    REVIEW_LLM_URL: http://100.91.142.120:30000/v1
+  timeout: 3h
   allow_failure: true
   interruptible: true
   tags:
