@@ -327,12 +327,10 @@ class NR_EXPORT NrInitialAssociation : public Object
 
     std::vector<NrAnglePair> m_bestBfVectors; ///< vector of best BF vectors from gNBs to UE
     std::vector<uint8_t> m_bestPanels;        ///< vector of best UE panels towards each gNB
-    PhasedArrayModel::ComplexVector m_beamformingVector; ///< Beamforming vector resulting in
-                                                         ///< highest RSRP with the associated gNB
-    std::vector<double> m_rowBeamAngles; ///< Set of row angles in degrees of beamforming
-                                         ///< vectors used in the initial access/association
-    std::vector<double> m_colBeamAngles; ///< Set of column angles in degrees of beamforming
-                                         ///< vectors used in the initial access/association
+    std::vector<double> m_rowBeamAngles;      ///< Set of row angles in degrees of beamforming
+                                              ///< vectors used in the initial access/association
+    std::vector<double> m_colBeamAngles;      ///< Set of column angles in degrees of beamforming
+                                              ///< vectors used in the initial access/association
 
     double m_primaryCarrierIndex{0}; ////< Primary carrier bandwidth part index
 

@@ -652,9 +652,6 @@ NrInitialAssociation::FindAssociatedGnb()
         if (count == int(value))
         {
             m_associatedGnb = m_gnbDevices.Get(i);
-            m_beamformingVector = GenBeamforming(m_bestBfVectors[i].rowAng,
-                                                 m_bestBfVectors[i].colAng,
-                                                 localParams.antennaArrays.gnbArrayModel);
             m_rsrpAsscGnb = m_maxRsrps[i];
             SetUeActivePanel(m_bestPanels[i]);
             return std::make_pair(m_associatedGnb, m_rsrpAsscGnb);

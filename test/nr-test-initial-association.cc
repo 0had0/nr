@@ -290,7 +290,8 @@ NrInitialAssociationActivePanelTestCase::DoRun()
  *
  * Three co-located gNBs with the same single-element antenna only differ in their transmit
  * power, so their RSRPs should differ by their transmit power difference, up to the fading of
- * their independent channels. One of them transmits below 0 dBm.
+ * their independent channels. One of them transmits below 0 dBm. The search is then repeated on
+ * the same object.
  */
 class NrInitialAssociationTxPowerTestCase : public TestCase
 {
@@ -337,6 +338,11 @@ NrInitialAssociationTxPowerTestCase::CheckRsrps(Ptr<NetDevice> ue,
                                   "The RSRP difference to gNB "
                                       << i << " should be the transmit power difference");
     }
+
+    // A second search reuses the RSRPs of the first one
+    const auto [gnbAgain, rsrpAgain] = association->FindAssociatedGnb();
+    NS_TEST_EXPECT_MSG_EQ(gnbAgain, associatedGnb, "A second search should not change the gNB");
+    NS_TEST_EXPECT_MSG_EQ(rsrpAgain, associatedRsrp, "A second search should not change RSRP");
 }
 
 void
