@@ -9,10 +9,24 @@ import re
 import sys
 from pathlib import Path
 from typing import Dict, Iterable, Set, Tuple
+from urllib.parse import urlsplit
 
 import httpx
 
 URL_RE = re.compile(r"https?://[^\s'\"\)\],<>]+", re.IGNORECASE)
+
+# Hosts that are only reachable from the machine or the network running a job
+IGNORED_HOSTS = {"localhost", "127.0.0.1", "100.91.142.120"}
+
+
+def is_ignored(url: str) -> bool:
+    try:
+        # Reading the port raises ValueError when it is not a number
+        _ = urlsplit(url).port
+    except ValueError:
+        # Not a real URL, e.g. the placeholder http://host:port
+        return True
+    return urlsplit(url).hostname in IGNORED_HOSTS
 
 
 def find_urls_in_tree(
@@ -155,6 +169,7 @@ def main(argv=None) -> int:
         "https://cttc-lena.gitlab.io/nr/html/gsoc-nr-rl-based-sched_8cc.html",
     ]
     urls = urls.difference(set(whitelisted_urls))
+    urls = {url for url in urls if not is_ignored(url)}
 
     print(f"Found {len(urls)} unique URLs. Checking...\n")
     results = check_urls(urls, timeout=args.timeout, retries=args.retries)
