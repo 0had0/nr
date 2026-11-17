@@ -1680,7 +1680,7 @@ NrUePhy::ReportUeMeasurements()
         // locked-beam signal that drives SINR / RLF), and replace neighbor
         // entries with genie best-beam estimates. The genie values are in
         // a different absolute reference than PSS-derived dBm (see
-        // NrInitialAssociation::ComputeMaxRsrpClean), so anchor the scale
+        // NrInitialAssociation::ComputeMaxRsrp), so anchor the scale
         // by computing an offset between PSS-serving and genie-serving and
         // shifting all reported neighbors by that offset. This preserves
         // the genie-computed relative deltas between cells while keeping

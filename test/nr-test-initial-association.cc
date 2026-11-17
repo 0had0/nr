@@ -290,8 +290,8 @@ NrInitialAssociationActivePanelTestCase::DoRun()
  *
  * Three co-located gNBs with the same single-element antenna only differ in their transmit
  * power, so their RSRPs should differ by their transmit power difference, up to the fading of
- * their independent channels. One of them transmits below 0 dBm. The search is then repeated on
- * the same object.
+ * their independent channels. One of them transmits below 0 dBm. GetCellRsrps() should return the
+ * same RSRPs, and the search is then repeated on the same object.
  */
 class NrInitialAssociationTxPowerTestCase : public TestCase
 {
@@ -337,6 +337,17 @@ NrInitialAssociationTxPowerTestCase::CheckRsrps(Ptr<NetDevice> ue,
                                   5.0,
                                   "The RSRP difference to gNB "
                                       << i << " should be the transmit power difference");
+    }
+
+    // GetCellRsrps() runs the same beam search
+    auto cellRsrps = association->GetCellRsrps();
+    for (size_t i = 0; i < m_txPowersDbm.size(); i++)
+    {
+        const auto cellId = DynamicCast<NrGnbNetDevice>(gnbDevices.Get(i))->GetCellId();
+        NS_TEST_EXPECT_MSG_EQ_TOL(cellRsrps[cellId],
+                                  association->GetMaxRsrp(i),
+                                  1e-9,
+                                  "GetCellRsrps() should return the RSRP of gNB " << i);
     }
 
     // A second search reuses the RSRPs of the first one

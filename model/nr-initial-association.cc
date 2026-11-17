@@ -53,7 +53,6 @@ NrInitialAssociation::GetTypeId()
                           MakeUintegerAccessor(&NrInitialAssociation::SetPrimaryCarrier,
                                                &NrInitialAssociation::GetPrimaryCarrier),
                           MakeUintegerChecker<uint8_t>())
-
             .AddAttribute("NumMainInterfererGnb",
                           "Number of main interferer gNBs",
                           UintegerValue(6),
@@ -344,13 +343,13 @@ NrInitialAssociation::ComputeRxPsd(Ptr<const SpectrumSignalParameters> spectrumS
     return totalPsd;
 }
 
-double
-NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearchParams& lsps)
+NrInitialAssociation::BestBeam
+NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearchParams& lsps) const
 {
     auto& chParams = lsps.chParams;
     auto& mobility = lsps.mobility;
     auto& antennas = lsps.antennaArrays;
-    uint8_t bestPanelIndex = GetUeActivePanel();
+    BestBeam best{.panel = GetUeActivePanel()};
     antennas.gnbArrayModel = ExtractGnbParameters(gnbDevice, lsps);
 
     NS_ASSERT_MSG(chParams.spectralModel->GetNumBands() >= m_startSsb + m_numBandsSsb,
@@ -360,7 +359,6 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
     {
         activeRbs.push_back(rbId);
     }
-    NrAnglePair bfAngles;
     Ptr<const SpectrumValue> fakePsd = NrSpectrumValueHelper::CreateTxPowerSpectralDensity(
         DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(m_primaryCarrierIndex)->GetTxPower(),
         activeRbs,
@@ -376,7 +374,6 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
 
     // Compute the received power of each UE panel and gNB beam. The strongest pair of this gNB
     // sets its RSRP, best beam and best UE panel.
-    double localMax = 0.0;
     for (size_t k = 0; k < antennas.ueArrayModel.size(); k++)
     {
         for (size_t j = 0; j < m_rowBeamAngles.size(); j++)
@@ -402,88 +399,19 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
                 }
                 // The channel matrix already carries the PSD of the gNB transmit power
                 auto eng = ComputeRxPsd(rxParam);
-                if (eng > localMax)
+                if (eng > best.rsrp)
                 {
-                    localMax = eng;
-                    bfAngles = {m_rowBeamAngles[j], m_colBeamAngles[i]};
-                    bestPanelIndex = k;
+                    best.rsrp = eng;
+                    best.bfAngles = {m_rowBeamAngles[j], m_colBeamAngles[i]};
+                    best.panel = k;
                 }
             }
         }
     }
     auto attenuation =
         chParams.pathLossModel->CalcRxPower(0, mobility.gnbMobility, mobility.ueMobility);
-    m_bestBfVectors.push_back(bfAngles);
-    m_bestPanels.push_back(bestPanelIndex);
-    return pow(10.0, attenuation / 10.0) * localMax;
-}
-
-double
-NrInitialAssociation::ComputeMaxRsrpClean(const Ptr<NetDevice>& gnbDevice,
-                                          LocalSearchParams& lsps) const
-{
-    auto& chParams = lsps.chParams;
-    auto& mobility = lsps.mobility;
-    auto& antennas = lsps.antennaArrays;
-    antennas.gnbArrayModel = ExtractGnbParameters(gnbDevice, lsps);
-
-    NS_ASSERT_MSG(chParams.spectralModel->GetNumBands() >= m_startSsb + m_numBandsSsb,
-                  "The primary carrier bandwidth should fit the SSB RBs");
-    std::vector<int> activeRbs;
-    for (size_t rbId = m_startSsb; rbId < m_numBandsSsb + m_startSsb; rbId++)
-    {
-        activeRbs.push_back(rbId);
-    }
-    Ptr<const SpectrumValue> fakePsd = NrSpectrumValueHelper::CreateTxPowerSpectralDensity(
-        DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(m_primaryCarrierIndex)->GetTxPower(),
-        activeRbs,
-        chParams.spectralModel,
-        NrSpectrumValueHelper::UNIFORM_POWER_ALLOCATION_USED);
-    auto txParams = Create<SpectrumSignalParameters>();
-    for (auto& i : antennas.ueArrayModel)
-    {
-        PhasedArrayModel::ComplexVector uebfVector(i->GetNumElems());
-        uebfVector[0] = 1.0;
-        i->SetBeamformingVector(uebfVector);
-    }
-
-    // Reset per-gNB so prior cells don't bleed into the running max.
-    lsps.maxPsdFound = 0;
-
-    for (size_t k = 0; k < antennas.ueArrayModel.size(); k++)
-    {
-        for (size_t j = 0; j < m_rowBeamAngles.size(); j++)
-        {
-            for (size_t i = 0; i < m_colBeamAngles.size(); i++)
-            {
-                auto bf =
-                    GenBeamforming(m_rowBeamAngles[j], m_colBeamAngles[i], antennas.gnbArrayModel);
-                antennas.gnbArrayModel->SetBeamformingVector(bf);
-                txParams->psd = Copy<SpectrumValue>(fakePsd);
-                auto rxParam = chParams.spectrumPropModel->DoCalcRxPowerSpectralDensity(
-                    txParams,
-                    mobility.gnbMobility,
-                    mobility.ueMobility,
-                    antennas.gnbArrayModel,
-                    antennas.ueArrayModel[k],
-                    bf,
-                    antennas.ueArrayModel[k]->GetBeamformingVector());
-                if (!rxParam->spectrumChannelMatrix)
-                {
-                    continue;
-                }
-                // The channel matrix already carries the PSD of the gNB transmit power
-                auto eng = ComputeRxPsd(rxParam);
-                if (eng > lsps.maxPsdFound)
-                {
-                    lsps.maxPsdFound = eng;
-                }
-            }
-        }
-    }
-    auto attenuation =
-        chParams.pathLossModel->CalcRxPower(0, mobility.gnbMobility, mobility.ueMobility);
-    return pow(10.0, attenuation / 10.0) * lsps.maxPsdFound;
+    best.rsrp *= pow(10.0, attenuation / 10.0);
+    return best;
 }
 
 std::map<uint16_t, double>
@@ -503,7 +431,7 @@ NrInitialAssociation::GetCellRsrps()
         {
             continue;
         }
-        double rsrpLin = ComputeMaxRsrpClean(gnbDev, localParams);
+        double rsrpLin = ComputeMaxRsrp(gnbDev, localParams).rsrp;
         if (rsrpLin > 0)
         {
             result[gnbNetDev->GetCellId()] = 10.0 * std::log10(rsrpLin);
@@ -611,16 +539,13 @@ void
 NrInitialAssociation::PopulateRsrps(LocalSearchParams& lsps)
 {
     // Compute maximum RSRP per each UE and all m_gnbDevices in dB
-    std::vector<double> powers;
-    powers.resize(m_gnbDevices.GetN());
-    std::transform(m_gnbDevices.Begin(),
-                   m_gnbDevices.End(),
-                   powers.begin(),
-                   [&](const Ptr<NetDevice> gnbDev) { return ComputeMaxRsrp(gnbDev, lsps); });
-    m_maxRsrps.resize(powers.size());
-    std::transform(powers.begin(), powers.end(), m_maxRsrps.begin(), [&](const double val) {
-        return 10 * log10(val); // in dB
-    });
+    for (auto it = m_gnbDevices.Begin(); it != m_gnbDevices.End(); it++)
+    {
+        const auto best = ComputeMaxRsrp(*it, lsps);
+        m_maxRsrps.push_back(10 * log10(best.rsrp));
+        m_bestBfVectors.push_back(best.bfAngles);
+        m_bestPanels.push_back(best.panel);
+    }
 }
 
 std::pair<Ptr<NetDevice>, double>

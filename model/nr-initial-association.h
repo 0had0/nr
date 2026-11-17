@@ -87,7 +87,6 @@ class NR_EXPORT NrInitialAssociation : public Object
         ChannelParams chParams;
         Mobilities mobility;
         AntennaArrayModels antennaArrays;
-        double maxPsdFound = 0.0;
     };
 
     /// @brief Check whether number of beams is corresponds to standard
@@ -262,19 +261,19 @@ class NR_EXPORT NrInitialAssociation : public Object
     Ptr<UniformPlanarArray> ExtractGnbParameters(const Ptr<NetDevice>& gnbDevice,
                                                  LocalSearchParams& searchParam) const;
 
-    /// @brief Compute max RSRP in watts for gNB device by beamforming using LocalSearchParams
+    /// @brief Strongest gNB beam and UE panel pair of a gNB
+    struct BestBeam
+    {
+        double rsrp{0.0};     ///< RSRP in linear units
+        NrAnglePair bfAngles; ///< Row and column angles of the gNB beam
+        uint8_t panel{0};     ///< Index of the UE panel
+    };
+
+    /// @brief Find the gNB beam and UE panel with the highest RSRP for a gNB device
     /// @param gnbDevice gNB device
     /// @param lsps structure with parameters
-    /// @return RSRP value
-    double ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearchParams& lsps);
-
-    /// @brief Side-effect-free variant of ComputeMaxRsrp for genie RSRP queries.
-    /// Resets lsps.maxPsdFound per call, does not push to m_bestBfVectors,
-    /// and does not call SetUeActivePanel.
-    /// @param gnbDevice gNB device
-    /// @param lsps structure with parameters (maxPsdFound is reset internally)
-    /// @return RSRP value (linear units, matching ComputeMaxRsrp)
-    double ComputeMaxRsrpClean(const Ptr<NetDevice>& gnbDevice, LocalSearchParams& lsps) const;
+    /// @return RSRP, gNB beam and UE panel
+    BestBeam ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearchParams& lsps) const;
 
     /// @brief Compute sum of received power of UE antenna ports
     /// @param spectrumSigParam spectral signal parameters
