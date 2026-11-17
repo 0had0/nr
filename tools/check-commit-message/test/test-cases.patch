@@ -1,7 +1,7 @@
-From 724afe5fed0ba31f29f6f26b4c8fe02aee33b686 Mon Sep 17 00:00:00 2001
+From 740b4334146d71b29f2e0bb8b8175045c9753070 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:52:29 +0100
-Subject: [PATCH 01/24] Borked: Commit
+Subject: [PATCH 01/26] Borked: Commit
 
 ---
  1.txt | 0
@@ -12,13 +12,13 @@ diff --git a/1.txt b/1.txt
 new file mode 100644
 index 00000000..e69de29b
 -- 
-2.48.1
+2.56.0
 
 
-From 1f1e11c0c33bac4480a326d5c2d8463724346e54 Mon Sep 17 00:00:00 2001
+From 51ffaa4028bc5ece4418ce7c03b7dc6c33d116a6 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:52:47 +0100
-Subject: [PATCH 02/24] Borked: commit
+Subject: [PATCH 02/26] Borked: commit
 
 ---
  1.txt | 1 +
@@ -31,13 +31,13 @@ index e69de29b..8b137891 100644
 @@ -0,0 +1 @@
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 894dd8a1bd9d4245be4ca584dcd8a3ad96a8d1c1 Mon Sep 17 00:00:00 2001
+From f1c6ae7d1ca55b82a05c095475c216c6586f208f Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:53:02 +0100
-Subject: [PATCH 03/24] borked: commit
+Subject: [PATCH 03/26] borked: commit
 
 ---
  1.txt | 1 +
@@ -51,13 +51,13 @@ index 8b137891..139597f9 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From b16724eb730083c16661f91e19ccf8067eab7047 Mon Sep 17 00:00:00 2001
+From 75879578736cba6115f6ae55c4cf863f8bd3f65c Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:53:20 +0100
-Subject: [PATCH 04/24] borked: Commit
+Subject: [PATCH 04/26] borked: Commit
 
 ---
  1.txt | 1 +
@@ -72,13 +72,13 @@ index 139597f9..b28b04f6 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 515b7ffa60479b40668f611f06d64d4500556d8b Mon Sep 17 00:00:00 2001
+From df3329e27b8c6ad1a4d534a97377553cb7076a10 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:53:37 +0100
-Subject: [PATCH 05/24] borked
+Subject: [PATCH 05/26] borked
 
 ---
  1.txt | 1 +
@@ -94,13 +94,13 @@ index b28b04f6..fd40910d 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 36b83b62c55a4bdb8c72ec44f9a3e9012ba5b83b Mon Sep 17 00:00:00 2001
+From 9597fe513908fe939c2fa1fbad436b780beee98d Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:53:57 +0100
-Subject: [PATCH 06/24] borked: fixes 132 Commit
+Subject: [PATCH 06/26] borked: fixes 132 Commit
 
 ---
  1.txt | 1 +
@@ -116,13 +116,13 @@ index fd40910d..3f2ff2d6 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 41e69eed41d73ac66d08f132fa21bde95f43f11e Mon Sep 17 00:00:00 2001
+From 17439d6d8560f770ae719955a3a1e195be45b848 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:54:13 +0100
-Subject: [PATCH 07/24] 1: Ok commit
+Subject: [PATCH 07/26] 1: Ok commit
 
 ---
  1.txt | 1 +
@@ -138,13 +138,13 @@ index 3f2ff2d6..6fb66a5e 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 8d9c711e253a71f21bad7e3e83051920bbffa025 Mon Sep 17 00:00:00 2001
+From bc419292efaa1ae868dfc9da3e11204c11fd00e3 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:54:26 +0100
-Subject: [PATCH 08/24] 1: (fixes #132) Ok commit
+Subject: [PATCH 08/26] 1: (fixes #132) Ok commit
 
 ---
  1.txt | 1 +
@@ -160,13 +160,13 @@ index 6fb66a5e..9e5f5f8a 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 2615002042b770875678225ad4ebe40857399ffe Mon Sep 17 00:00:00 2001
+From 628602b0b658a647a1e92ef9874ec65b96211ddd Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:54:40 +0100
-Subject: [PATCH 09/24] 1,2: Borked commit
+Subject: [PATCH 09/26] 1,2: Borked commit
 
 ---
  1.txt | 1 +
@@ -187,13 +187,13 @@ diff --git a/2.txt b/2.txt
 new file mode 100644
 index 00000000..e69de29b
 -- 
-2.48.1
+2.56.0
 
 
-From e7b9837153131be6ae26102c52801d18dfe017cc Mon Sep 17 00:00:00 2001
+From 2cace3f6cc3332898fec8db24e67ca75334987b9 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:54:59 +0100
-Subject: [PATCH 10/24] 1, 2: Ok commit
+Subject: [PATCH 10/26] 1, 2: Ok commit
 
 ---
  1.txt | 1 +
@@ -216,13 +216,13 @@ index e69de29b..8b137891 100644
 @@ -0,0 +1 @@
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 7fb658aeaa018a57aa47424821172c77f121b741 Mon Sep 17 00:00:00 2001
+From e0a79c13ed2bbf9f88e570d82ab2a3032cf4c356 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:55:11 +0100
-Subject: [PATCH 11/24] 1, 2: (fixes #132) Ok commit
+Subject: [PATCH 11/26] 1, 2: (fixes #132) Ok commit
 
 ---
  1.txt | 1 +
@@ -246,13 +246,13 @@ index 8b137891..139597f9 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 86e736cc0dd659cb0c985cc461d5718edf4c6ce4 Mon Sep 17 00:00:00 2001
+From 88b3bf242de1565297e2e05f93a83660fc0ff333 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:55:24 +0100
-Subject: [PATCH 12/24] 1, 2, 3: (fixes #132) Ok commit
+Subject: [PATCH 12/26] 1, 2, 3: (fixes #132) Ok commit
 
 ---
  1.txt | 1 +
@@ -282,13 +282,13 @@ diff --git a/3.txt b/3.txt
 new file mode 100644
 index 00000000..e69de29b
 -- 
-2.48.1
+2.56.0
 
 
-From 28dcda97767ea401ec43326721b7dbcd3fb7cab8 Mon Sep 17 00:00:00 2001
+From 9724ace6255581a6c56e3feb14bb134074f666d0 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:55:44 +0100
-Subject: [PATCH 13/24] 1, 2, 3, 4: Borked commit
+Subject: [PATCH 13/26] 1, 2, 3, 4: Borked commit
 
 ---
  1.txt | 1 +
@@ -326,13 +326,13 @@ diff --git a/4.txt b/4.txt
 new file mode 100644
 index 00000000..e69de29b
 -- 
-2.48.1
+2.56.0
 
 
-From 141967c5d07ccb64977b7cffd3d7a86ac3969fd8 Mon Sep 17 00:00:00 2001
+From 06f8a351a544477265ecee63ef73c3fbbe4350b9 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:56:01 +0100
-Subject: [PATCH 14/24] nr: Ok commit
+Subject: [PATCH 14/26] nr: Ok commit
 
 ---
  1.txt | 1 +
@@ -373,13 +373,13 @@ index e69de29b..8b137891 100644
 @@ -0,0 +1 @@
 +
 -- 
-2.48.1
+2.56.0
 
 
-From ee0976d4ce41a39adc6e9f035d3c02b3a350a0ad Mon Sep 17 00:00:00 2001
+From 2a9517f4d533d7f8a17151ce83ec557fe4bfe733 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:56:16 +0100
-Subject: [PATCH 15/24] 5, 6, 7, 8: Borked commit
+Subject: [PATCH 15/26] 5, 6, 7, 8: Borked commit
 
 ---
  examples/lena-lte-comparison/5.txt | 0
@@ -405,13 +405,13 @@ diff --git a/examples/lena-lte-comparison/8.txt b/examples/lena-lte-comparison/8
 new file mode 100644
 index 00000000..e69de29b
 -- 
-2.48.1
+2.56.0
 
 
-From 0e0901a0e9c1189bdc7c443255ae6fe3dba29de4 Mon Sep 17 00:00:00 2001
+From e6e2edd77c6efce2454a7644fe0ad8caf9eac3d9 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:56:33 +0100
-Subject: [PATCH 16/24] lena-lte-comparison: (fixes #132) Ok commit
+Subject: [PATCH 16/26] lena-lte-comparison: (fixes #132) Ok commit
 
 ---
  examples/lena-lte-comparison/5.txt | 1 +
@@ -445,13 +445,13 @@ index e69de29b..8b137891 100644
 @@ -0,0 +1 @@
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 145e16176a338e32729bea44f42c4791aa6189e4 Mon Sep 17 00:00:00 2001
+From 219a1c2c12a88210379ce7d930cdd4748451b17a Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:56:47 +0100
-Subject: [PATCH 17/24] lena-lte-comparison: Ok commit
+Subject: [PATCH 17/26] lena-lte-comparison: Ok commit
 
 ---
  examples/lena-lte-comparison/5.txt | 1 +
@@ -489,13 +489,13 @@ index 8b137891..139597f9 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From bb9acc44c2dca295202f22ed1dce1e4cff4712f7 Mon Sep 17 00:00:00 2001
+From 8fd3f011b6de59ca398f6ebec0ffe6283474f4de Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:57:02 +0100
-Subject: [PATCH 18/24] 1: Borked commit due to unnecessarily long commit
+Subject: [PATCH 18/26] 1: Borked commit due to unnecessarily long commit
  message. Let's keep this going for a bit more. And more. And more. And more.
 
 ---
@@ -512,13 +512,13 @@ index 384ee9a8..5cf5d3dc 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 15a16cf7f63a704168bb08e1dbcae0713893a82e Mon Sep 17 00:00:00 2001
+From 94fa26c364081b648dc7cbbdfafbc806fb3226f8 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:59:01 +0100
-Subject: [PATCH 19/24] 7, 8, 9: Ok commit
+Subject: [PATCH 19/26] 7, 8, 9: Ok commit
 
 ---
  examples/3gpp-outdoor-calibration/9.txt | 0
@@ -547,13 +547,13 @@ index 139597f9..b28b04f6 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From fcc5f4a6c9481bf2f179501d4462bb5e2818c82e Mon Sep 17 00:00:00 2001
+From e932c08d98cf084a11f0b61bffda5620fdc4afb8 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:59:21 +0100
-Subject: [PATCH 20/24] 7, 8, 9, 10: Borked commit
+Subject: [PATCH 20/26] 7, 8, 9, 10: Borked commit
 
 ---
  examples/3gpp-outdoor-calibration/10.txt | 0
@@ -591,13 +591,13 @@ index b28b04f6..fd40910d 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From 7e0876b96c89246633ef323f2943691f04d413fd Mon Sep 17 00:00:00 2001
+From a33ff9e9aa56841fcb9bd7b81a5e509321006e35 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Fri, 12 Jan 2024 10:59:39 +0100
-Subject: [PATCH 21/24] examples: Ok commit
+Subject: [PATCH 21/26] examples: Ok commit
 
 ---
  examples/3gpp-outdoor-calibration/10.txt | 1 +
@@ -638,13 +638,13 @@ index fd40910d..3f2ff2d6 100644
  
 +
 -- 
-2.48.1
+2.56.0
 
 
-From c145799b7b385857b8c4fd519b3b5f6fbc3cce1d Mon Sep 17 00:00:00 2001
+From c757b974cdf87be172b9491110f2d01d96c355a8 Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Thu, 27 Nov 2025 19:45:47 +0100
-Subject: [PATCH 22/24] mist-software: Add MIST-Software license (not NIST not
+Subject: [PATCH 22/26] mist-software: Add MIST-Software license (not NIST not
  to collide with the real one)
 
 ---
@@ -687,13 +687,13 @@ index 00000000..218559bb
 +property. The software developed by NIST employees is not subject to copyright
 +protection within the United States.
 -- 
-2.48.1
+2.56.0
 
 
-From 9a4f0ef5ae328e92e463cf66a4adacbfd01862bc Mon Sep 17 00:00:00 2001
+From e8840aca0399facf83b16cd4d5ce09db7b871cfe Mon Sep 17 00:00:00 2001
 From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
 Date: Thu, 27 Nov 2025 19:49:39 +0100
-Subject: [PATCH 23/24] nr-epc-*: Add extra space
+Subject: [PATCH 23/26] nr-epc-*: Add extra space
 
 ---
  model/nr-epc-gnb-application.cc | 1 +
@@ -701,7 +701,7 @@ Subject: [PATCH 23/24] nr-epc-*: Add extra space
  2 files changed, 2 insertions(+)
 
 diff --git a/model/nr-epc-gnb-application.cc b/model/nr-epc-gnb-application.cc
-index 3116b67c..6c180537 100644
+index 176484a2..b6bb2a23 100644
 --- a/model/nr-epc-gnb-application.cc
 +++ b/model/nr-epc-gnb-application.cc
 @@ -5,6 +5,7 @@
@@ -713,7 +713,7 @@ index 3116b67c..6c180537 100644
  
  #include "nr-epc-gtpu-header.h"
 diff --git a/model/nr-epc-pgw-application.cc b/model/nr-epc-pgw-application.cc
-index ebe0aedc..8d0860cd 100644
+index 7f12c690..38026984 100644
 --- a/model/nr-epc-pgw-application.cc
 +++ b/model/nr-epc-pgw-application.cc
 @@ -5,6 +5,7 @@
@@ -725,13 +725,13 @@ index ebe0aedc..8d0860cd 100644
  
  #include "nr-epc-gtpu-header.h"
 -- 
-2.48.1
+2.56.0
 
 
-From 2d57c7465087372f89c751b160dec77f706d6557 Mon Sep 17 00:00:00 2001
+From 30228af6aee9b2f7278ddcad23b40edf39c85ac9 Mon Sep 17 00:00:00 2001
 From: Biljana Bojovic <biljana.bojovic@gmail.com>
 Date: Wed, 26 Nov 2025 16:24:41 +0100
-Subject: [PATCH 24/24] FEATURES2: Change the structure (Initial Bils idea) not
+Subject: [PATCH 24/26] FEATURES2: Change the structure (Initial Bils idea) not
  to collide
 
 ---
@@ -971,5 +971,61 @@ index 00000000..05302eca
 +
 +© 2025 Centre Tecnològic de Telecomunicacions de Catalunya (CTTC) – OpenSim Research Unit
 -- 
-2.48.1
+2.56.0
+
+
+From 236479925e40ddc3e3486d1f7373cdea7180392c Mon Sep 17 00:00:00 2001
+From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
+Date: Tue, 17 Nov 2026 18:07:57 +0100
+Subject: [PATCH 25/26] readme: Borked commit body
+
+This paragraph is wrapped at a fixed width, which splits a single
+paragraph into several lines.
+
+A second paragraph on a single line is fine.
+---
+ README.md | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/README.md b/README.md
+index 38e75474..cca01a64 100644
+--- a/README.md
++++ b/README.md
+@@ -377,3 +377,4 @@ doxygen doxygen.conf
+ ```
+ 
+ You will find the doxygen documentation inside `doc/doc/html/`.
++x
+-- 
+2.56.0
+
+
+From 4accff369c720499d38a09ca0f814a8a1b3a7e23 Mon Sep 17 00:00:00 2001
+From: Gabriel Ferreira <gabrielcarvfer@gmail.com>
+Date: Tue, 17 Nov 2026 18:07:57 +0100
+Subject: [PATCH 26/26] readme: Ok commit body
+
+A paragraph on a single line, followed by a blank line before the next block.
+
+- A list item
+- Another list item
+  continued with an indented line
+
+Signed-off-by: Someone <someone@example.com>
+Reviewed-by: Someone Else <else@example.com>
+---
+ README.md | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/README.md b/README.md
+index cca01a64..bd3cb3c3 100644
+--- a/README.md
++++ b/README.md
+@@ -378,3 +378,4 @@ doxygen doxygen.conf
+ 
+ You will find the doxygen documentation inside `doc/doc/html/`.
+ x
++y
+-- 
+2.56.0
 

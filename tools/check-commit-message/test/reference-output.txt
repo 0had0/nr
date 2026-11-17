@@ -1,4 +1,4 @@
-Passed: 56, Failed: 19
+Passed: 88, Failed: 20
 Commits that failed check 'LengthCheck'
 Checked rule: commits should have no more than 100 characters.
   Commit with Message: '1: Borked commit due to unnecessarily long commit message. Let's keep this going for a bit more. And more. And more. And more.'
@@ -60,3 +60,8 @@ Commits that failed check 'CheckPrefix'
   	Error: incorrect format style. See MatchesFormatCheck results.
   Commit with Message: 'Borked: Commit'
   	Error: incorrect format style. See MatchesFormatCheck results.
+Commits that failed check 'BodyParagraphCheck'
+Checked rule: blank lines separate the paragraphs of the commit message body, and a paragraph is written on a single line, without line breaks.
+  Commit with Message: 'readme: Borked commit body'
+  	Error: line breaks inside a paragraph, before:
+		paragraph into several lines.

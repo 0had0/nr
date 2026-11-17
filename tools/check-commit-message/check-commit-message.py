@@ -381,6 +381,34 @@ class CheckPrefix(BaseCheck):
         return f'  \tError: prefix should be "{expected_prefix}"'
 
 
+class BodyParagraphCheck(BaseCheck):
+    # Lines that may follow another line of the same block: list items, indented lines
+    # (code or the continuation of a list item) and trailers
+    BLOCK_LINE_REGEX = re.compile(r"^(?:[-*] |\d+[.)] |\s|[A-Za-z-]+: )")
+
+    def _wrapped_lines(self, commit_info):
+        lines = commit_info.commit.message.split("\n")[1:]
+        wrapped = []
+        for previous, line in zip(lines, lines[1:]):
+            if previous.strip() and line.strip() and not self.BLOCK_LINE_REGEX.match(line):
+                wrapped.append(line)
+        return wrapped
+
+    def check(self, commit_info):
+        return not self._wrapped_lines(commit_info)
+
+    def description(self):
+        return (
+            "Checked rule: blank lines separate the paragraphs of the commit message body, and a "
+            "paragraph is written on a single line, without line breaks."
+        )
+
+    def diagnostic_message(self, commit_info):
+        msg = "  \tError: line breaks inside a paragraph, before:"
+        msg += "".join(f"\n\t\t{line}" for line in self._wrapped_lines(commit_info))
+        return msg
+
+
 def retrieve_commits_info():
     try:
         repo = Repo(NR_TOP_LEVEL_DIRECTORY)
@@ -414,6 +442,7 @@ def main(argv):
         LengthCheck(args),
         MatchesFormatCheck(args),
         CheckPrefix(args),
+        BodyParagraphCheck(args),
     ]
 
     passed = 0
