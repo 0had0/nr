@@ -22,6 +22,7 @@
 #include "ns3/string.h"
 #include "ns3/uinteger.h"
 
+#include <cmath>
 #include <numeric>
 
 namespace ns3
@@ -632,6 +633,7 @@ NrInitialAssociation::FindAssociatedGnb()
         PopulateRsrps(localParams);
     }
     auto maxVal = std::max_element(m_maxRsrps.begin(), m_maxRsrps.end());
+    NS_ABORT_MSG_IF(std::isinf(*maxVal), "The UE is out of range of all the gNBs");
     std::vector<bool> assocFlag;
     assocFlag.resize(m_maxRsrps.size());
 
