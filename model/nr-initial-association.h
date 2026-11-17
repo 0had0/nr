@@ -242,7 +242,7 @@ class NR_EXPORT NrInitialAssociation : public Object
     /// configured row/col angle grid for each known gNB, without mutating
     /// UE active panel or stored best-beam vectors.
     /// @return Map of NR cell id to RSRP value in dB (same convention as
-    /// the values stored in m_maxRsrps by PopulateRsrps).
+    /// GetMaxRsrp()).
     /// @note Intended as a "genie" override for NrUePhy neighbor-cell
     /// measurements via NrUePhy::SetGenieRsrpCallback, to isolate the
     /// handover-decision pipeline from beam-management limitations.
@@ -321,16 +321,14 @@ class NR_EXPORT NrInitialAssociation : public Object
     size_t m_numIntfGnbs{m_numMainInterfererGnb}; ///< Number of main interfering gNBs
     double m_rsrpRatio{0.0};          ///< RSRP ratio of main interferer to remaining interferer
     NetDeviceContainer m_intfGnbDevs; ///< Set of main interfering gNB with the m_ueDevice
-    std::vector<double> m_maxRsrps;   ///< Set of max RSRP values from different gNBs to UE
     double m_rsrpAsscGnb;
     Ptr<NetDevice> m_associatedGnb{nullptr}; ///< gNB with which m_ueDevice is associated
 
-    std::vector<NrAnglePair> m_bestBfVectors; ///< vector of best BF vectors from gNBs to UE
-    std::vector<uint8_t> m_bestPanels;        ///< vector of best UE panels towards each gNB
-    std::vector<double> m_rowBeamAngles;      ///< Set of row angles in degrees of beamforming
-                                              ///< vectors used in the initial access/association
-    std::vector<double> m_colBeamAngles;      ///< Set of column angles in degrees of beamforming
-                                              ///< vectors used in the initial access/association
+    std::vector<BestBeam> m_bestBeams;   ///< Best beam and UE panel of each gNB, by gNB index
+    std::vector<double> m_rowBeamAngles; ///< Set of row angles in degrees of beamforming
+                                         ///< vectors used in the initial access/association
+    std::vector<double> m_colBeamAngles; ///< Set of column angles in degrees of beamforming
+                                         ///< vectors used in the initial access/association
 
     uint8_t m_primaryCarrierIndex{0}; ///< Primary carrier bandwidth part index
 

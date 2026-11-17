@@ -218,6 +218,21 @@ NrInitialAssociationActivePanelTestCase::CheckPanels(Ptr<NetDevice> ue,
     NS_TEST_EXPECT_MSG_EQ(association->GetUeActivePanel(),
                           0,
                           "The UE should activate the best panel of its associated gNB");
+
+    // Changing the gNBs of an association object discards the results of its search
+    auto reused = Associate(ue, NetDeviceContainer(gnbDevices.Get(m_farIdx)));
+    reused->SetGnbDevices(gnbDevices);
+    const auto [reusedGnb, reusedRsrp] = reused->FindAssociatedGnb();
+    NS_TEST_EXPECT_MSG_EQ(reusedGnb,
+                          gnbDevices.Get(m_nearIdx),
+                          "A search with new gNBs should associate with the near gNB");
+    NS_TEST_EXPECT_MSG_EQ_TOL(reusedRsrp,
+                              association->GetMaxRsrp(m_nearIdx),
+                              1e-9,
+                              "A search with new gNBs should return the RSRP of the near gNB");
+    NS_TEST_EXPECT_MSG_EQ(reused->GetUeActivePanel(),
+                          0,
+                          "A search with new gNBs should activate the panel of the near gNB");
 }
 
 void
@@ -349,6 +364,20 @@ NrInitialAssociationTxPowerTestCase::CheckRsrps(Ptr<NetDevice> ue,
                                   1e-9,
                                   "GetCellRsrps() should return the RSRP of gNB " << i);
     }
+
+    // With one main interferer, the strongest of the others, the rest of the interference is
+    // the weakest gNB
+    association->InitializeIntfSet(1, false, 0);
+    const auto interferers = association->GetInterferingGnbs();
+    NS_TEST_ASSERT_MSG_EQ(interferers.GetN(), 1, "There should be one main interferer");
+    NS_TEST_EXPECT_MSG_EQ(interferers.Get(0),
+                          gnbDevices.Get(1),
+                          "The main interferer should be the second strongest gNB");
+    NS_TEST_EXPECT_MSG_EQ_TOL(
+        association->GetRelativeRsrpRatio(),
+        std::pow(10.0, (association->GetMaxRsrp(2) - association->GetMaxRsrp(1)) / 10.0),
+        1e-9,
+        "The RSRP ratio should be the weakest gNB over the main interferer");
 
     // A second search reuses the RSRPs of the first one
     const auto [gnbAgain, rsrpAgain] = association->FindAssociatedGnb();

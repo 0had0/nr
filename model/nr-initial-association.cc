@@ -23,6 +23,7 @@
 #include "ns3/uinteger.h"
 
 #include <cmath>
+#include <limits>
 #include <numeric>
 
 namespace ns3
@@ -120,13 +121,13 @@ NrInitialAssociation::GetInterferingGnbs() const
 double
 NrInitialAssociation::GetMaxRsrp(uint64_t gnbId) const
 {
-    return m_maxRsrps[gnbId];
+    return 10 * log10(m_bestBeams[gnbId].rsrp);
 }
 
 NrAnglePair
 NrInitialAssociation::GetBestBfv(uint64_t gnbId) const
 {
-    return m_bestBfVectors[gnbId];
+    return m_bestBeams[gnbId].bfAngles;
 }
 
 double
@@ -225,6 +226,8 @@ void
 NrInitialAssociation::SetGnbDevices(const NetDeviceContainer& gnbDevices)
 {
     m_gnbDevices = gnbDevices;
+    // Force a new search with these gNBs
+    m_bestBeams.clear();
 }
 
 void
@@ -445,11 +448,11 @@ NrInitialAssociation::ComputeRsrpRatio(const double totalRsrp, const std::vector
 {
     NS_ASSERT_MSG(m_numIntfGnbs > 0,
                   "Number of main interfering gNBs should not be negative " << m_numIntfGnbs);
-    NS_ASSERT_MSG(m_numIntfGnbs < m_maxRsrps.size(),
+    NS_ASSERT_MSG(m_numIntfGnbs < m_bestBeams.size(),
                   "Number of main interfering gNBs should be less than the number of gNB ");
     double intfRsrp = 0;
     auto nIntf = 0;
-    auto j = m_maxRsrps.size() - nIntf;
+    auto j = m_bestBeams.size() - nIntf;
     while (nIntf < int(m_numIntfGnbs))
     {
         j--;
@@ -457,7 +460,7 @@ NrInitialAssociation::ComputeRsrpRatio(const double totalRsrp, const std::vector
         if (gnbDev != m_associatedGnb)
         {
             m_intfGnbDevs.Add(gnbDev);
-            intfRsrp += std::pow(10.0, m_maxRsrps[idxVal[j]] / 10.0);
+            intfRsrp += m_bestBeams[idxVal[j]].rsrp;
             nIntf++;
         }
     }
@@ -467,16 +470,16 @@ NrInitialAssociation::ComputeRsrpRatio(const double totalRsrp, const std::vector
 void
 NrInitialAssociation::InitializeIntfSet(uint16_t numIntf, bool useRelRsrp, double relRsrpThreshold)
 {
-    NS_ASSERT_MSG(!m_maxRsrps.empty(), "Populate RSRP values first");
+    NS_ASSERT_MSG(!m_bestBeams.empty(), "Populate RSRP values first");
     NS_ASSERT_MSG(m_associatedGnb, "Association should be completed first");
     m_numIntfGnbs = numIntf;
 
-    std::vector<uint16_t> idxVal(m_maxRsrps.size());
+    std::vector<uint16_t> idxVal(m_bestBeams.size());
     std::iota(idxVal.begin(), idxVal.end(), 0); // Initializing the indexes
 
     // getting the index of the gNBs in increasing order of received power to the UE
     std::sort(idxVal.begin(), idxVal.end(), [&](int i, int j) {
-        return (m_maxRsrps[i] < m_maxRsrps[j]);
+        return (GetMaxRsrp(i) < GetMaxRsrp(j));
     });
 
     auto cumSumIntf = GetInterference(idxVal);
@@ -493,12 +496,12 @@ NrInitialAssociation::InitializeIntfSet(uint16_t numIntf, bool useRelRsrp, doubl
 std::vector<double>
 NrInitialAssociation::GetInterference(const std::vector<uint16_t>& idxVal) const
 {
-    std::vector<double> cumSumIntf(m_maxRsrps.size()); // Cumulative sum of RSRP values from gNBs
-    cumSumIntf[0] = std::pow(10.0, m_maxRsrps[idxVal[0]] / 10.0);
-    for (size_t i = 1; i < m_maxRsrps.size(); ++i)
+    std::vector<double> cumSumIntf(m_bestBeams.size()); // Cumulative sum of RSRP values from gNBs
+    cumSumIntf[0] = m_bestBeams[idxVal[0]].rsrp;
+    for (size_t i = 1; i < m_bestBeams.size(); ++i)
     {
         // Getting cumulative sum of received RSRP from gNB wherein RSRP are in increasing order
-        cumSumIntf[i] = cumSumIntf[i - 1] + std::pow(10.0, m_maxRsrps[idxVal[i]] / 10.0);
+        cumSumIntf[i] = cumSumIntf[i - 1] + m_bestBeams[idxVal[i]].rsrp;
     }
     return cumSumIntf;
 }
@@ -507,7 +510,7 @@ double
 NrInitialAssociation::GetTotalInterference(const std::vector<double>& cumSumIntf) const
 {
     auto totalInterference =
-        cumSumIntf[m_maxRsrps.size() - 1] -
+        cumSumIntf[m_bestBeams.size() - 1] -
         std::pow(10.0,
                  m_rsrpAsscGnb / 10.0); // subtract the power of the associated gNB to get
                                         // overall interference. Note that because hand off
@@ -521,8 +524,8 @@ NrInitialAssociation::GetNumIntfGnbsByRelRsrp(const std::vector<double> cumSumIn
                                               const double relRsrpThreshold,
                                               const double totalInterference) const
 {
-    auto numIntfGnbs = m_maxRsrps.size() - 1;
-    for (size_t i = 0; i < m_maxRsrps.size(); ++i)
+    auto numIntfGnbs = m_bestBeams.size() - 1;
+    for (size_t i = 0; i < m_bestBeams.size(); ++i)
     {
         // This line is equivalent to  cumSumIntf[i] < relPsd * Main Interference.
         // Note that main interference is totalInterference - cumSumIntf[i]
@@ -538,13 +541,10 @@ NrInitialAssociation::GetNumIntfGnbsByRelRsrp(const std::vector<double> cumSumIn
 void
 NrInitialAssociation::PopulateRsrps(LocalSearchParams& lsps)
 {
-    // Compute maximum RSRP per each UE and all m_gnbDevices in dB
-    for (auto it = m_gnbDevices.Begin(); it != m_gnbDevices.End(); it++)
+    m_bestBeams.resize(m_gnbDevices.GetN());
+    for (size_t i = 0; i < m_gnbDevices.GetN(); i++)
     {
-        const auto best = ComputeMaxRsrp(*it, lsps);
-        m_maxRsrps.push_back(10 * log10(best.rsrp));
-        m_bestBfVectors.push_back(best.bfAngles);
-        m_bestPanels.push_back(best.panel);
+        m_bestBeams[i] = ComputeMaxRsrp(m_gnbDevices.Get(i), lsps);
     }
 }
 
@@ -553,19 +553,23 @@ NrInitialAssociation::FindAssociatedGnb()
 {
     auto localParams = ExtractUeParameters();
     m_freq = localParams.chParams.channelModel->GetFrequency();
-    if (m_maxRsrps.empty())
+    if (m_bestBeams.empty())
     {
         PopulateRsrps(localParams);
     }
-    auto maxVal = std::max_element(m_maxRsrps.begin(), m_maxRsrps.end());
-    NS_ABORT_MSG_IF(std::isinf(*maxVal), "The UE is out of range of all the gNBs");
-    std::vector<bool> assocFlag;
-    assocFlag.resize(m_maxRsrps.size());
+    double maxVal = -std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < m_bestBeams.size(); i++)
+    {
+        maxVal = std::max(maxVal, GetMaxRsrp(i));
+    }
+    NS_ABORT_MSG_IF(std::isinf(maxVal), "The UE is out of range of all the gNBs");
 
     // Keep gnbDevs with RSRP values lower than maxVal and handoffMargin
-    std::transform(m_maxRsrps.begin(), m_maxRsrps.end(), assocFlag.begin(), [&](const double val) {
-        return (*maxVal - val) <= m_handoffMargin;
-    });
+    std::vector<bool> assocFlag(m_bestBeams.size());
+    for (size_t i = 0; i < m_bestBeams.size(); i++)
+    {
+        assocFlag[i] = (maxVal - GetMaxRsrp(i)) <= m_handoffMargin;
+    }
     auto numPossibleGnb = std::accumulate(assocFlag.begin(), assocFlag.end(), 0);
 
     // Choose Randomly gnbDev from possible gNB
@@ -579,8 +583,8 @@ NrInitialAssociation::FindAssociatedGnb()
         if (count == int(value))
         {
             m_associatedGnb = m_gnbDevices.Get(i);
-            m_rsrpAsscGnb = m_maxRsrps[i];
-            SetUeActivePanel(m_bestPanels[i]);
+            m_rsrpAsscGnb = GetMaxRsrp(i);
+            SetUeActivePanel(m_bestBeams[i].panel);
             return std::make_pair(m_associatedGnb, m_rsrpAsscGnb);
         }
     }
