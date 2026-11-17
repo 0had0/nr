@@ -233,10 +233,10 @@ class NR_EXPORT NrInitialAssociation : public Object
 
     /// @brief Set the primary BWP or carrier
     /// @param index
-    void SetPrimaryCarrier(double index);
+    void SetPrimaryCarrier(uint8_t index);
 
     /// @brief Get the primary BWP or carrier
-    double GetPrimaryCarrier() const;
+    uint8_t GetPrimaryCarrier() const;
 
     /// @brief Recompute per-cell RSRP using the best Kronecker beam from the
     /// configured row/col angle grid for each known gNB, without mutating
@@ -332,7 +332,7 @@ class NR_EXPORT NrInitialAssociation : public Object
     std::vector<double> m_colBeamAngles;      ///< Set of column angles in degrees of beamforming
                                               ///< vectors used in the initial access/association
 
-    double m_primaryCarrierIndex{0}; ////< Primary carrier bandwidth part index
+    uint8_t m_primaryCarrierIndex{0}; ///< Primary carrier bandwidth part index
 
     Ptr<UniformRandomVariable> m_assocRng{
         CreateObject<UniformRandomVariable>()}; ///< RNG to break equal-RSRP ties

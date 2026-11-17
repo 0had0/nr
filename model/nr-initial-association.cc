@@ -49,17 +49,17 @@ NrInitialAssociation::GetTypeId()
                 MakeDoubleChecker<double>())
             .AddAttribute("PrimaryCarrierIndex",
                           "primary carrier index",
-                          DoubleValue(0),
-                          MakeDoubleAccessor(&NrInitialAssociation::SetPrimaryCarrier,
-                                             &NrInitialAssociation::GetPrimaryCarrier),
-                          MakeDoubleChecker<double>())
+                          UintegerValue(0),
+                          MakeUintegerAccessor(&NrInitialAssociation::SetPrimaryCarrier,
+                                               &NrInitialAssociation::GetPrimaryCarrier),
+                          MakeUintegerChecker<uint8_t>())
 
             .AddAttribute("NumMainInterfererGnb",
                           "Number of main interferer gNBs",
                           UintegerValue(6),
-                          MakeDoubleAccessor(&NrInitialAssociation::SetNumMainInterfererGnb,
-                                             &NrInitialAssociation::GetNumMainInterfererGnb),
-                          MakeDoubleChecker<double>())
+                          MakeUintegerAccessor(&NrInitialAssociation::SetNumMainInterfererGnb,
+                                               &NrInitialAssociation::GetNumMainInterfererGnb),
+                          MakeUintegerChecker<uint8_t>())
             .AddAttribute("ColumnAngles",
                           "Column angles separated by |",
                           StringValue("0|90"),
@@ -229,12 +229,12 @@ NrInitialAssociation::SetGnbDevices(const NetDeviceContainer& gnbDevices)
 }
 
 void
-NrInitialAssociation::SetPrimaryCarrier(double index)
+NrInitialAssociation::SetPrimaryCarrier(uint8_t index)
 {
     m_primaryCarrierIndex = index;
 }
 
-double
+uint8_t
 NrInitialAssociation::GetPrimaryCarrier() const
 {
     return m_primaryCarrierIndex;
@@ -327,7 +327,7 @@ double
 NrInitialAssociation::ComputeRxPsd(Ptr<const SpectrumSignalParameters> spectrumSigParam) const
 {
     auto& spectrumChannelMatrix = spectrumSigParam->spectrumChannelMatrix;
-    NS_ASSERT_MSG(spectrumChannelMatrix->GetNumPages() >= m_numBandsSsb,
+    NS_ASSERT_MSG(spectrumChannelMatrix->GetNumPages() >= m_startSsb + m_numBandsSsb,
                   "The primary carrier bandwidth should have at least 20 PRBs to fit SSBs");
     auto numUePorts = spectrumChannelMatrix->GetNumRows();
     double totalPsd = 0;
@@ -353,7 +353,7 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
     uint8_t bestPanelIndex = GetUeActivePanel();
     antennas.gnbArrayModel = ExtractGnbParameters(gnbDevice, lsps);
 
-    NS_ASSERT_MSG(chParams.spectralModel->GetNumBands() >= m_numBandsSsb,
+    NS_ASSERT_MSG(chParams.spectralModel->GetNumBands() >= m_startSsb + m_numBandsSsb,
                   "The primary carrier bandwidth should have at least 20 PRBs to fit SSBs");
     std::vector<int> activeRbs;
     for (size_t rbId = m_startSsb; rbId < m_numBandsSsb + m_startSsb; rbId++)
@@ -362,7 +362,7 @@ NrInitialAssociation::ComputeMaxRsrp(const Ptr<NetDevice>& gnbDevice, LocalSearc
     }
     NrAnglePair bfAngles;
     Ptr<const SpectrumValue> fakePsd = NrSpectrumValueHelper::CreateTxPowerSpectralDensity(
-        DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(0)->GetTxPower(),
+        DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(m_primaryCarrierIndex)->GetTxPower(),
         activeRbs,
         chParams.spectralModel,
         NrSpectrumValueHelper::UNIFORM_POWER_ALLOCATION_USED);
@@ -427,15 +427,15 @@ NrInitialAssociation::ComputeMaxRsrpClean(const Ptr<NetDevice>& gnbDevice,
     auto& antennas = lsps.antennaArrays;
     antennas.gnbArrayModel = ExtractGnbParameters(gnbDevice, lsps);
 
-    NS_ASSERT_MSG(chParams.spectralModel->GetNumBands() >= m_numBandsSsb,
-                  "The primary carrier bandwidth should have at least 20 PRBs to fit SSBs");
+    NS_ASSERT_MSG(chParams.spectralModel->GetNumBands() >= m_startSsb + m_numBandsSsb,
+                  "The primary carrier bandwidth should fit the SSB RBs");
     std::vector<int> activeRbs;
     for (size_t rbId = m_startSsb; rbId < m_numBandsSsb + m_startSsb; rbId++)
     {
         activeRbs.push_back(rbId);
     }
     Ptr<const SpectrumValue> fakePsd = NrSpectrumValueHelper::CreateTxPowerSpectralDensity(
-        DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(0)->GetTxPower(),
+        DynamicCast<NrGnbNetDevice>(gnbDevice)->GetPhy(m_primaryCarrierIndex)->GetTxPower(),
         activeRbs,
         chParams.spectralModel,
         NrSpectrumValueHelper::UNIFORM_POWER_ALLOCATION_USED);
@@ -672,7 +672,7 @@ void
 NrInitialAssociation::SetUeActivePanel(int8_t panelIndex) const
 {
     auto ueDev = m_ueDevice->GetObject<NrUeNetDevice>();
-    auto phy = ueDev->GetPhy(0);
+    auto phy = ueDev->GetPhy(m_primaryCarrierIndex);
     auto spectrumPhy = phy->GetSpectrumPhy();
     spectrumPhy->SetActivePanel(panelIndex);
 }
@@ -681,7 +681,7 @@ uint8_t
 NrInitialAssociation::GetUeActivePanel() const
 {
     auto ueDev = m_ueDevice->GetObject<NrUeNetDevice>();
-    auto phy = ueDev->GetPhy(0);
+    auto phy = ueDev->GetPhy(m_primaryCarrierIndex);
     auto spectrumPhy = phy->GetSpectrumPhy();
     for (uint8_t i = 0; i < spectrumPhy->GetNumPanels(); i++)
     {

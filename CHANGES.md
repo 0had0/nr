@@ -78,6 +78,7 @@ us a note on ns-developers mailing list.
 - Add support for GTP-U extension headers in ``NrGtpuHeader`` (``AddExtensionHeader()``, ``GetExtensionHeaders()``), and for the PDU Session Container extension header (``SetPduSessionContainer()``, ``HasPduSessionContainer()``, ``GetPduType()``, ``GetQfi()``), which carries the QFI on the N3 interface.
 - ``NrGtpuHeader::SetExtensionHeaderFlag()`` and ``NrGtpuHeader::SetNextExtensionType()`` are removed: the E flag and the next extension header type are now derived from the extension headers added with ``AddExtensionHeader()``.
 - The following ``NrMacSchedulerNs3`` methods are now ``final``, as they depend on its private state and cannot be meaningfully overridden: ``DoCschedCellConfigReq()``, ``DoCschedUeConfigReq()``, ``DoSchedDlRlcBufferReq()``, ``DoSchedUlMacCtrlInfoReq()``, ``DoSchedDlCqiInfoReq()``, ``DoSchedUlCqiInfoReq()``, ``DoCschedUeReleaseReq()``, ``DoCschedLcConfigReq()``, ``DoCschedLcReleaseReq()``, ``DoSchedDlTriggerReq()``, ``DoSchedUlTriggerReq()``, ``DoSchedUlSrInfoReq()``, ``DoSchedSetMcs()``, ``DoSchedDlRachInfoReq()``, ``GetDlCtrlSyms()``, ``GetUlCtrlSyms()`` and ``IsMaxSrsReached()``. Schedulers that derive from ``NrMacSchedulerNs3`` and override any of them no longer compile.
+- The ``NumMainInterfererGnb`` and ``PrimaryCarrierIndex`` attributes of ``NrInitialAssociation``, and ``NrHelper::InitialAssocParams::primaryCarrierIndex``, are ``uint8_t`` instead of ``double``.
 
 ### Changed Behavior
 

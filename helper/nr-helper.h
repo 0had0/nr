@@ -995,7 +995,7 @@ class NR_EXPORT NrHelper : public Object
         std::vector<double> rowAngles{0, 90}; ///< vector of angles to set in initial assocc
         std::vector<double> colAngles{0, 90}; ///< vector of angles to set in initial assocc
         double handoffMargin{0};              ///< Handoff margin for Initial assocc
-        double primaryCarrierIndex{0};        ///< primary carrier index for Initial assocc
+        uint8_t primaryCarrierIndex{0};       ///< primary carrier index for Initial assocc
     };
 
     /// @brief Set TypeId of the precoding matrix search algorithm

@@ -2313,7 +2313,7 @@ NrHelper::SetupInitialAssoc(const NrHelper::InitialAssocParams& params)
     // Set parameters for Initial Association Params
     m_initialParams = params;
     SetInitialAssocAttribute("HandoffMargin", DoubleValue(params.handoffMargin));
-    SetInitialAssocAttribute("PrimaryCarrierIndex", DoubleValue(params.primaryCarrierIndex));
+    SetInitialAssocAttribute("PrimaryCarrierIndex", UintegerValue(params.primaryCarrierIndex));
 }
 
 bool
