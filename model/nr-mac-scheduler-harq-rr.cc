@@ -87,37 +87,32 @@ NrMacSchedulerHarqRr::InstallReshapeAllocation(
 }
 
 std::vector<BeamId>
-NrMacSchedulerHarqRr::GetBeamOrderRR(NrMacSchedulerNs3::ActiveHarqMap activeHarqMap) const
+NrMacSchedulerHarqRr::GetBeamOrderRR(const NrMacSchedulerNs3::ActiveHarqMap& activeHarqMap,
+                                     BeamQueue* queue) const
 {
-    std::vector<BeamId> ret;
-    ret.reserve(activeHarqMap.size());
-
     for (const auto& el : activeHarqMap)
     {
-        // Add new beams to the round-robin queue
-        if (m_rrBeamsSet.find(el.first) == m_rrBeamsSet.end())
+        if (queue->knownBeams.insert(el.first).second)
         {
-            m_rrBeams.push_back(el.first);
-            m_rrBeamsSet.insert(el.first);
+            queue->order.push_back(el.first);
         }
     }
 
-    // The round-robin queue accumulates every beam ever seen, so it may be
-    // larger than the set of currently active beams. Walk the whole queue once,
-    // appending only the active beams (in round-robin order) to the result, and
-    // rotate the queue to preserve fairness across calls. The result therefore
-    // contains exactly the active beams, with no out-of-range writes and no
-    // default-constructed entries that the caller would fail to look up.
-    for (size_t i = 0; i < m_rrBeams.size(); ++i)
+    // The queue keeps every beam ever seen, so skip the ones without retransmissions
+    std::vector<BeamId> ret;
+    ret.reserve(activeHarqMap.size());
+    for (const auto& beam : queue->order)
     {
-        // If front beam in round-robin queue is active, append it to the order
-        if (activeHarqMap.find(m_rrBeams.front()) != activeHarqMap.end())
+        if (activeHarqMap.find(beam) != activeHarqMap.end())
         {
-            ret.push_back(m_rrBeams.front());
+            ret.push_back(beam);
         }
-        // Move round-robin front queue item to the end
-        m_rrBeams.push_back(m_rrBeams.front());
-        m_rrBeams.pop_front();
+    }
+
+    if (!ret.empty())
+    {
+        auto first = std::find(queue->order.begin(), queue->order.end(), ret.front());
+        std::rotate(queue->order.begin(), std::next(first), queue->order.end());
     }
     return ret;
 }
@@ -208,7 +203,7 @@ NrMacSchedulerHarqRr::ScheduleDlHarq(
         };
 
     NS_LOG_INFO("We have " << activeDlHarq.size() << " beams with data to RETX");
-    for (const auto beamId : GetBeamOrderRR(activeDlHarq))
+    for (const auto beamId : GetBeamOrderRR(activeDlHarq, &m_dlBeams))
     {
         const auto& beam = *activeDlHarq.find(beamId);
         const auto preexistingDciNumToBeam = slotAlloc->m_varTtiAllocInfo.size();
@@ -305,10 +300,6 @@ NrMacSchedulerHarqRr::ScheduleDlHarq(
                 // symbol, so the slot symbol budget must be debited exactly
                 // once per beam, by the beam's symbol span, at the end of the
                 // beam loop below (see "symAvail -= symbolsUsedForBeam").
-                // Debiting per retransmission here as well double-counted the
-                // symbols and could underflow the uint8_t budget, which then
-                // over-allocated symbols for the following beams and tripped the
-                // caller assertion "dlSymAvail >= usedHarq".
                 // First, check if there are collisions.
                 bool collision = false;
                 for (std::size_t i = 0; i < dlBitmaskBackup.size(); i++)
@@ -453,11 +444,15 @@ NrMacSchedulerHarqRr::ScheduleDlHarq(
  * @param startingPoint starting point of the first retransmission.
  * It should be set to the next available starting point
  * @param symAvail Available symbols
+ * @param activeUlHarq Map of the active HARQ processes, sorted per beam
  * @param ueMap Map of the UEs
  * @param ulHarqToRetransmit HARQ feedbacks that could not be transmitted (to fill)
  * @param ulHarqFeedback all the HARQ feedbacks
  * @param slotAlloc Slot allocation info
  * @return the VarTtiSlotAlloc ID to use next
+ *
+ * The feedbacks are visited beam by beam in round-robin order, and in the
+ * order of activeUlHarq within each beam.
  *
  * For each NACKed process a DCI is built, with the exact same specification
  * (RBGs, symbol count, MCS and TBS) as the first transmission. A retransmission
@@ -471,6 +466,7 @@ uint8_t
 NrMacSchedulerHarqRr::ScheduleUlHarq(
     NrMacSchedulerNs3::PointInFTPlane* startingPoint,
     uint8_t symAvail,
+    const NrMacSchedulerNs3::ActiveHarqMap& activeUlHarq,
     const std::unordered_map<uint16_t, std::shared_ptr<NrMacSchedulerUeInfo>>& ueMap,
     std::vector<UlHarqInfo>* ulHarqToRetransmit,
     const std::vector<UlHarqInfo>& ulHarqFeedback,
@@ -497,9 +493,26 @@ NrMacSchedulerHarqRr::ScheduleUlHarq(
                 << ". Available symbols: " << symAvail
                 << " number of feedback: " << ulHarqFeedback.size());
 
-    for (std::size_t i = 0; i < ulHarqFeedback.size() && (symAvail > 0 || !spans.empty()); i++)
+    std::vector<UlHarqInfo> orderedFeedback;
+    orderedFeedback.reserve(ulHarqFeedback.size());
+    for (const auto& beamId : GetBeamOrderRR(activeUlHarq, &m_ulBeams))
     {
-        const UlHarqInfo& harqInfo = ulHarqFeedback.at(i);
+        for (const auto& it : activeUlHarq.at(beamId))
+        {
+            auto feedback =
+                std::find_if(ulHarqFeedback.begin(), ulHarqFeedback.end(), [&](const auto& info) {
+                    return info.m_harqProcessId == it->first &&
+                           info.m_rnti == it->second.m_dciElement->m_rnti;
+                });
+            NS_ASSERT_MSG(feedback != ulHarqFeedback.end(), "No feedback for an active UL HARQ");
+            orderedFeedback.push_back(*feedback);
+        }
+    }
+    NS_ASSERT(orderedFeedback.size() == ulHarqFeedback.size());
+
+    for (std::size_t i = 0; i < orderedFeedback.size() && (symAvail > 0 || !spans.empty()); i++)
+    {
+        const UlHarqInfo& harqInfo = orderedFeedback.at(i);
         uint8_t harqId = harqInfo.m_harqProcessId;
         uint16_t rnti = harqInfo.m_rnti;
 
@@ -609,7 +622,7 @@ NrMacSchedulerHarqRr::ScheduleUlHarq(
         }
         else
         {
-            ulHarqToRetransmit->push_back(ulHarqFeedback.at(i));
+            ulHarqToRetransmit->push_back(orderedFeedback.at(i));
         }
     }
 

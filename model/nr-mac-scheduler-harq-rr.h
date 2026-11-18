@@ -104,6 +104,7 @@ class NR_EXPORT NrMacSchedulerHarqRr : public Object
     virtual uint8_t ScheduleUlHarq(
         NrMacSchedulerNs3::PointInFTPlane* startingPoint,
         uint8_t symAvail,
+        const NrMacSchedulerNs3::ActiveHarqMap& activeUlHarq,
         const std::unordered_map<uint16_t, std::shared_ptr<NrMacSchedulerUeInfo>>& ueMap,
         std::vector<UlHarqInfo>* ulHarqToRetransmit,
         const std::vector<UlHarqInfo>& ulHarqFeedback,
@@ -151,11 +152,25 @@ class NR_EXPORT NrMacSchedulerHarqRr : public Object
                                 uint8_t numSym) const;
 
   private:
+    /// Round-robin queue of the beams with HARQ retransmissions
+    struct BeamQueue
+    {
+        std::deque<BeamId> order;                          ///< Order in which beams are served
+        std::unordered_set<BeamId, BeamIdHash> knownBeams; ///< Beams already in the order
+    };
+
     /**
      * @brief Orders active beams of associated HARQ processes following round-robin order
+     *
+     * The beam served first is moved to the back of the queue, so the next call
+     * starts from the beam that followed it.
+     *
+     * @param activeHarqMap Active HARQ processes per beam
+     * @param queue Round-robin queue of the link direction
      * @return vector of BeamIds in round-robin order
      */
-    std::vector<BeamId> GetBeamOrderRR(NrMacSchedulerNs3::ActiveHarqMap activeHarqMap) const;
+    std::vector<BeamId> GetBeamOrderRR(const NrMacSchedulerNs3::ActiveHarqMap& activeHarqMap,
+                                       BeamQueue* queue) const;
 
     std::function<uint16_t()> m_getBwpId;          //!< Function to retrieve bwp id
     std::function<uint16_t()> m_getCellId;         //!< Function to retrieve cell id
@@ -177,9 +192,9 @@ class NR_EXPORT NrMacSchedulerHarqRr : public Object
     std::function<std::vector<bool>()> m_getDlBitmask; //!< Retrieve DL bitmask from scheduler
     std::function<std::vector<bool>()> m_getUlBitmask; //!< Retrieve UL bitmask from scheduler
 
-    mutable std::deque<BeamId> m_rrBeams; //!< Queue of order of beams to transmit
-    mutable std::unordered_set<BeamId, BeamIdHash> m_rrBeamsSet; //!< Set of known beams
-    bool m_consolidateHarqRetx; //!< Flag configured by attribute ConsolidateHarqRetx
+    mutable BeamQueue m_dlBeams; //!< Round-robin queue of DL beams
+    mutable BeamQueue m_ulBeams; //!< Round-robin queue of UL beams
+    bool m_consolidateHarqRetx;  //!< Flag configured by attribute ConsolidateHarqRetx
 };
 
 } // namespace ns3

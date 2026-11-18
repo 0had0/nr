@@ -256,6 +256,7 @@ class NR_EXPORT NrMacSchedulerNs3 : public NrMacScheduler
     friend class NrTestMacSchedulerHarqRrDlFill;
     friend class NrTestMacSchedulerHarqRrFillUtilization;
     friend class NrTestMacSchedulerHarqRrUlSpanSpread;
+    friend class NrTestMacSchedulerHarqRrBeamRoundRobin;
 
   public:
     /**
@@ -616,6 +617,7 @@ class NR_EXPORT NrMacSchedulerNs3 : public NrMacScheduler
      * @param startingPoint starting point of the first retransmission.
      * It should be set to the next available starting point
      * @param symAvail Available symbols
+     * @param activeUlHarq Map of the active HARQ processes
      * @param ueMap Map of the UEs
      * @param ulHarqToRetransmit HARQ feedbacks that could not be transmitted (to fill)
      * @param ulHarqFeedback all the HARQ feedbacks
@@ -624,6 +626,7 @@ class NR_EXPORT NrMacSchedulerNs3 : public NrMacScheduler
      */
     virtual uint8_t ScheduleUlHarq(NrMacSchedulerNs3::PointInFTPlane* startingPoint,
                                    uint8_t symAvail,
+                                   const ActiveHarqMap& activeUlHarq,
                                    const std::unordered_map<uint16_t, UePtr>& ueMap,
                                    std::vector<UlHarqInfo>* ulHarqToRetransmit,
                                    const std::vector<UlHarqInfo>& ulHarqFeedback,
