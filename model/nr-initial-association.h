@@ -236,6 +236,7 @@ class NR_EXPORT NrInitialAssociation : public Object
     void SetPrimaryCarrier(uint8_t index);
 
     /// @brief Get the primary BWP or carrier
+    /// @return index
     uint8_t GetPrimaryCarrier() const;
 
     /// @brief Recompute per-cell RSRP using the best Kronecker beam from the
