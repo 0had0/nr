@@ -499,20 +499,18 @@ NrTestMacSchedulerHarqRrScheduleDlHarq::DoRun()
 }
 
 /**
- * @brief Regression test for the HARQ round-robin beam ordering
+ * @brief Check the HARQ round-robin beam ordering when the queue of known beams
+ * is larger than the set of beams with retransmissions
  *
  * NrMacSchedulerHarqRr keeps a persistent round-robin queue of every beam ever
- * seen (m_rrBeams). A previous implementation of GetBeamOrderRR() sized the
- * returned vector to the number of currently active beams while indexing it with
- * the (potentially much larger) size of the persistent queue, causing a heap
- * buffer overflow once more beams had been observed than were active in the
- * current slot. The overflow corrupted the heap and manifested later as a
- * "double free or corruption" abort.
+ * seen (m_dlBeams and m_ulBeams, one per link direction), while
+ * GetBeamOrderRR() returns only the beams with retransmissions in the current
+ * slot. The two sizes differ as soon as a known beam has nothing to retransmit.
  *
  * This test reuses a single scheduler across several DL HARQ scheduling rounds
- * with a shrinking set of active beams, so that the persistent queue grows
- * larger than the active-beam set, and asserts that scheduling completes without
- * memory corruption.
+ * with a shrinking set of active beams, so that the persistent queue is larger
+ * than the active-beam set, and checks that scheduling completes without memory
+ * corruption.
  */
 class NrTestMacSchedulerHarqRrBeamOrder : public TestCase
 {
@@ -628,10 +626,9 @@ NrTestMacSchedulerHarqRrBeamOrder::DoRun()
     }
     ScheduleRound(sched, allRntis);
 
-    // Subsequent rounds: progressively fewer active beams. With the old code,
-    // the result vector (sized to the active-beam count) was indexed by the
-    // larger persistent-queue size, overflowing the heap. Reaching this point
-    // without an abort confirms the fix.
+    // Subsequent rounds: progressively fewer active beams, while the persistent
+    // queue still holds all of them. An out-of-bounds access when building the
+    // beam order would abort the test here.
     for (uint16_t active = numUes - 1; active >= 1 && active < numUes; --active)
     {
         std::vector<uint16_t> rntis;
@@ -651,16 +648,14 @@ NrTestMacSchedulerHarqRrBeamOrder::DoRun()
 }
 
 /**
- * @brief Regression test for the DL HARQ symbol-budget (symAvail) underflow.
+ * @brief Check that the DL HARQ symbol budget (symAvail) does not underflow.
  *
- * With ConsolidateHarqRetx disabled (the default), ScheduleDlHarq() used to
- * debit its uint8_t symbol budget (symAvail) twice for the same symbols: once
- * per allocated retransmission, and again at the end of each beam by the beam's
- * symbol span. When a beam's retransmission spanned more than half of the
- * remaining symbols, the second, unguarded subtraction underflowed the budget
- * and wrapped to ~254. The next beam's retransmissions then passed every check
- * and were placed past the end of the slot, so ScheduleDlHarq() returned a span
- * larger than the budget it was given and the caller tripped
+ * ScheduleDlHarq() tracks the symbols left in the slot in a uint8_t, and must
+ * debit it exactly once for the symbols of each beam. Debiting the same symbols
+ * twice underflows the budget when a beam spans more than half of the remaining
+ * symbols. The retransmissions of the next beam then pass every check and are
+ * placed past the end of the slot, and the span returned by ScheduleDlHarq() is
+ * larger than the budget it was given, which trips the caller
  * NS_ASSERT_MSG(dlSymAvail >= usedHarq, ...).
  *
  * This test places one retransmission per beam in two distinct beams, each
@@ -724,9 +719,9 @@ NrTestMacSchedulerHarqRrSymbolBudget::CheckSchedule(
 void
 NrTestMacSchedulerHarqRrSymbolBudget::DoRun()
 {
-    // The bug lived in the default, non-consolidating path. Set the attribute
-    // explicitly so the test does not depend on the default value (and is robust
-    // to other test cases changing it via Config::SetDefault).
+    // This test targets the non-consolidating path. Set the attribute explicitly
+    // so the test does not depend on the default value (and is robust to other
+    // test cases changing it via Config::SetDefault).
     Config::SetDefault("ns3::NrMacSchedulerHarqRr::ConsolidateHarqRetx", BooleanValue(false));
 
     auto cellConfig = NrMacCschedSapProvider::CschedCellConfigReqParameters();
@@ -734,9 +729,9 @@ NrTestMacSchedulerHarqRrSymbolBudget::DoRun()
     cellConfig.m_ulBandwidth = 10;
 
     // One UE per beam, in two distinct beams. Each retransmission spans 8 of the
-    // 14 available symbols: more than half, so a single beam leaves 6 symbols and
-    // the buggy double-subtraction wraps the budget below zero, letting the
-    // second beam over-allocate.
+    // 14 available symbols: more than half, so a single beam leaves 6 symbols,
+    // and debiting its 8 symbols a second time would wrap the budget below zero,
+    // letting the second beam over-allocate.
     const uint8_t numSym = 8;
     const std::vector<uint16_t> rntis = {0, 1};
 
@@ -811,8 +806,8 @@ NrTestMacSchedulerHarqRrSymbolBudget::DoRun()
         paramsDlTrigger.m_dlHarqInfoList.push_back(harqInfo);
     }
 
-    // With the bug present this either trips an assertion (debug build) or
-    // schedules a retransmission past the end of the slot, caught by
+    // An underflow of the budget either trips an assertion (when asserts are
+    // enabled) or schedules a retransmission past the end of the slot, caught by
     // CheckSchedule above.
     sched->DoSchedDlTriggerReq(paramsDlTrigger);
 
@@ -827,10 +822,10 @@ NrTestMacSchedulerHarqRrSymbolBudget::DoRun()
  * In OFDMA, several UEs in the same beam are retransmitted on the same OFDM
  * symbols but disjoint RBGs (frequency multiplexing). ScheduleDlHarq() must
  * therefore debit the slot symbol budget by the beam's symbol span, not by the
- * sum of the per-UE spans. The earlier per-retransmission debit (since fixed)
- * dropped every UE after the first whenever the shared span exceeded half the
- * slot, silently losing retransmissions (and, with a following beam, underflowed
- * the budget). This test schedules two UEs in one beam on disjoint RBGs, each
+ * sum of the per-UE spans. Debiting per retransmission drops every UE after the
+ * first whenever the shared span exceeds half the slot, silently losing
+ * retransmissions (and, with a following beam, underflows the budget). This test
+ * schedules two UEs in one beam on disjoint RBGs, each
  * spanning more than half of the slot, and checks that both are scheduled within
  * the slot, with and without HARQ consolidation.
  */
@@ -2766,6 +2761,437 @@ NrTestMacSchedulerHarqRrUlSpanSpread::DoRun()
     Config::Reset();
 }
 
+/**
+ * @ingroup test
+ * @brief Expose the HARQ sorting of the TDMA RR scheduler.
+ */
+class NrTestMacSchedulerHarqSort : public NrMacSchedulerTdmaRR
+{
+  public:
+    using NrMacSchedulerNs3::SortDlHarq;
+    using NrMacSchedulerNs3::SortUlHarq;
+};
+
+/**
+ * @ingroup test
+ * @brief Check that the RR HARQ scheduler sorts the DL and UL retransmissions
+ * of each beam by decreasing number of symbols, keeping the order of ties.
+ *
+ * What is under test: NrMacSchedulerHarqRr::SortDlHarq() and SortUlHarq(). They
+ * receive the map of beams to pending retransmissions and reorder the list of
+ * each beam, which is the order in which ScheduleDlHarq() and ScheduleUlHarq()
+ * later place them in the slot. SortUlHarq() reuses the DL sort, so both
+ * directions are checked against the same expectation.
+ *
+ * How: no slot is scheduled. The test builds the map by hand, with HARQ processes
+ * that differ only in their number of symbols, calls the sort directly, and
+ * compares the resulting sequence of HARQ process IDs of each beam with a
+ * hand-computed one. It fails when a list is not in decreasing order, when two
+ * retransmissions with the same number of symbols swap places, or when a process
+ * moves to the list of another beam.
+ */
+class NrTestMacSchedulerHarqRrSort : public TestCase
+{
+  public:
+    /**
+     * @brief Constructor
+     * @param isDl Whether to sort DL or UL HARQ retransmissions
+     */
+    NrTestMacSchedulerHarqRrSort(bool isDl)
+        : TestCase(std::string("HARQ RR sorts ") + (isDl ? "DL" : "UL") +
+                   " retransmissions by decreasing number of symbols"),
+          m_isDl(isDl)
+    {
+    }
+
+  private:
+    void DoRun() override;
+
+    bool m_isDl; ///< Whether to sort DL or UL HARQ retransmissions
+};
+
+void
+NrTestMacSchedulerHarqRrSort::DoRun()
+{
+    // Input: the number of symbols of each pending retransmission, per beam, in
+    // the order they are inserted. HARQ process IDs are assigned sequentially
+    // across beams, so beam (0,0) holds IDs 0 to 4 and beam (1,0) holds IDs 5 and 6:
+    //
+    //   beam (0,0): ID      0  1  2  3  4      beam (1,0): ID      5  6
+    //               symbols 2  6  3  6  9                  symbols 1  4
+    //
+    // Beam (0,0) is unsorted and has a tie (IDs 1 and 3, 6 symbols each), to
+    // check that the sort is stable. Beam (1,0) is in increasing order, to
+    // check that each beam is sorted on its own.
+    const std::vector<std::pair<BeamId, std::vector<uint8_t>>> numSymsPerBeam{
+        {BeamId(0, 0), {2, 6, 3, 6, 9}},
+        {BeamId(1, 0), {1, 4}},
+    };
+
+    // The sort operates on iterators to HARQ processes, so the processes need to
+    // live in a HARQ vector, as they do in the UE info of a real scheduler. Only
+    // the number of symbols of each DCI matters, the other fields are placeholders.
+    NrMacHarqVector harqVector;
+    harqVector.SetMaxSize(16);
+    NrMacSchedulerNs3::ActiveHarqMap activeHarq;
+    uint8_t harqId = 0;
+    for (const auto& [beam, numSyms] : numSymsPerBeam)
+    {
+        for (auto numSym : numSyms)
+        {
+            auto it = harqVector.Find(harqId++);
+            it->second.m_dciElement = std::make_shared<DciInfoElementTdma>(
+                0,
+                m_isDl ? DciInfoElementTdma::DL : DciInfoElementTdma::UL,
+                0,
+                numSym,
+                10,
+                1,
+                nullptr,
+                100,
+                0,
+                0,
+                DciInfoElementTdma::DATA,
+                0,
+                0);
+            activeHarq[beam].push_back(it);
+        }
+    }
+
+    // The sort methods are protected in the scheduler, so they are called through
+    // a subclass that makes them public. The scheduler forwards them to
+    // NrMacSchedulerHarqRr, and needs no cell or UE configuration for that.
+    auto sched = CreateObject<NrTestMacSchedulerHarqSort>();
+    if (m_isDl)
+    {
+        sched->SortDlHarq(&activeHarq);
+    }
+    else
+    {
+        sched->SortUlHarq(&activeHarq);
+    }
+
+    // Expected output: the HARQ process IDs of each beam, by decreasing number
+    // of symbols. Ties keep their insertion order (ID 1 before ID 3):
+    //
+    //   beam (0,0): symbols 9  6  6  3  2      beam (1,0): symbols 4  1
+    //               ID      4  1  3  2  0                  ID      6  5
+    const std::vector<std::pair<BeamId, std::vector<uint8_t>>> expectedIds{
+        {BeamId(0, 0), {4, 1, 3, 2, 0}},
+        {BeamId(1, 0), {6, 5}},
+    };
+    for (const auto& [beam, ids] : expectedIds)
+    {
+        const auto& sorted = activeHarq.at(beam);
+        NS_TEST_ASSERT_MSG_EQ(sorted.size(), ids.size(), "Unexpected number of HARQ processes");
+        for (size_t i = 0; i < ids.size(); i++)
+        {
+            NS_TEST_EXPECT_MSG_EQ(+sorted.at(i)->first,
+                                  +ids.at(i),
+                                  "Unexpected HARQ process at position " << i);
+        }
+    }
+
+    Simulator::Destroy();
+}
+
+/**
+ * @ingroup test
+ * @brief Check that the RR HARQ scheduler serves the beams with retransmissions in
+ * round-robin order.
+ *
+ * What is under test: NrMacSchedulerHarqRr::GetBeamOrderRR(), through
+ * ScheduleDlHarq() and ScheduleUlHarq(). The HARQ scheduler keeps one queue of
+ * beams per link direction. In each slot it serves the beams with pending
+ * retransmissions in queue order, and then moves the beam it served first to the
+ * back of the queue. When symbols run out, the beams served last are the ones
+ * whose retransmissions are postponed, so rotating the queue is what prevents
+ * the same beam from being postponed in every slot.
+ *
+ * How: three UEs, one per beam, each keep one retransmission pending in every
+ * slot, for six slots (two full rounds over the three beams). The position of the
+ * retransmissions in the slot tells in which order the beams were served: the
+ * beam served first gets the first DL symbols, or the last UL symbols, since UL
+ * retransmissions are placed from the end of the slot backwards.
+ *
+ * Without postponing, the retransmissions take 2 symbols each and all three fit
+ * in the slot, so only the order changes between slots. With postponing, they
+ * take 6 symbols each and only two fit in the 13 data symbols, so the beam served
+ * last is postponed. Its feedback is retried by the scheduler in the next slot,
+ * and the other two UEs report a new failure, so every beam again has one
+ * retransmission pending.
+ *
+ * With beams A, B and C, the expected behavior is:
+ *
+ *   slot          0      1      2      3      4      5
+ *   beam order    A B C  B C A  C A B  A B C  B C A  C A B
+ *   served first  A      B      C      A      B      C
+ *
+ * With postponing, the beam postponed in each slot is the last one of its order:
+ *
+ *   slot          0      1      2      3      4      5
+ *   postponed     C      A      B      C      A      B
+ *
+ * The test records the UE served first in each slot and checks two things:
+ * during the first three slots every UE is served first exactly once, and the
+ * last three slots repeat the first three. It fails when the queue does not
+ * rotate (the same beam is always first), or when it rotates irregularly. With
+ * postponing, it also checks that exactly one beam is postponed per slot, that
+ * the beam postponed in a slot is served in the next one, and that every beam is
+ * postponed once per round. Without the rotation, the same beam would be
+ * postponed in every slot and its retransmission would never be served.
+ *
+ * The initial order (which beam is A) is not checked, because the beams are
+ * learned from an unordered map and their first order is arbitrary.
+ */
+class NrTestMacSchedulerHarqRrBeamRoundRobin : public TestCase
+{
+  public:
+    /**
+     * @brief Constructor
+     * @param isDl Whether to schedule DL or UL HARQ retransmissions
+     * @param postpone Whether only two of the three retransmissions fit in a slot
+     */
+    NrTestMacSchedulerHarqRrBeamRoundRobin(bool isDl, bool postpone)
+        : TestCase(std::string("HARQ RR serves the ") + (isDl ? "DL" : "UL") +
+                   " retransmission beams in round-robin order" +
+                   (postpone ? ", postponing a different beam in each slot" : "")),
+          m_isDl(isDl),
+          m_postpone(postpone)
+    {
+    }
+
+  private:
+    void DoRun() override;
+
+    /**
+     * @brief Store the RNTIs whose retransmissions were served in the slot, and the
+     * one served first.
+     * @param params the scheduled slot allocation reported by the scheduler
+     */
+    void StoreFirstServed(const NrMacSchedSapUser::SchedConfigIndParameters& params);
+
+    bool m_isDl;                       ///< Whether to schedule DL or UL HARQ retransmissions
+    bool m_postpone;                   ///< Whether only two retransmissions fit in a slot
+    std::vector<uint16_t> m_firstRnti; ///< RNTI served first in each slot
+    std::vector<std::set<uint16_t>> m_servedRntis; ///< RNTIs served in each slot
+};
+
+void
+NrTestMacSchedulerHarqRrBeamRoundRobin::StoreFirstServed(
+    const NrMacSchedSapUser::SchedConfigIndParameters& params)
+{
+    // Called by the scheduler with the final allocation of each slot. The
+    // allocation does not say in which order the beams were served, so it is
+    // inferred from the symbols of each retransmission: DL retransmissions are
+    // placed from the first data symbol onwards, so the first served has the
+    // lowest starting symbol. UL retransmissions are placed from the end of the
+    // slot backwards, so the first served has the highest starting symbol.
+    const auto format = m_isDl ? DciInfoElementTdma::DL : DciInfoElementTdma::UL;
+    std::shared_ptr<DciInfoElementTdma> first;
+    std::set<uint16_t> served;
+    for (const auto& varTtiAllocInfo : params.m_slotAllocInfo.m_varTtiAllocInfo)
+    {
+        const auto& dci = varTtiAllocInfo.m_dci;
+        // Skip the control allocations, only the retransmissions matter
+        if (dci->m_type != DciInfoElementTdma::DATA || dci->m_format != format)
+        {
+            continue;
+        }
+        served.insert(dci->m_rnti);
+        if (!first ||
+            (m_isDl ? dci->m_symStart < first->m_symStart : dci->m_symStart > first->m_symStart))
+        {
+            first = dci;
+        }
+    }
+    NS_TEST_ASSERT_MSG_EQ(served.size(),
+                          m_postpone ? 2 : 3,
+                          "Unexpected number of retransmissions in the slot");
+    // There is one UE per beam, so the RNTI identifies the beam served first
+    m_firstRnti.push_back(first->m_rnti);
+    m_servedRntis.push_back(served);
+}
+
+void
+NrTestMacSchedulerHarqRrBeamRoundRobin::DoRun()
+{
+    // Step 1: create a standalone scheduler, without MAC, PHY or channel.
+    //
+    // The test plays the role of the MAC: it triggers the scheduler by hand, once
+    // per slot, and receives the resulting slot allocation in StoreFirstServed()
+    // through the fake SAP user. SRS is disabled so that the UL slots hold only
+    // the retransmissions.
+    Config::SetDefault("ns3::NrMacSchedulerNs3::EnableSrsInUlSlots", BooleanValue(false));
+
+    auto cellConfig = NrMacCschedSapProvider::CschedCellConfigReqParameters();
+    cellConfig.m_dlBandwidth = 10; // 10 RBGs
+    cellConfig.m_ulBandwidth = 10;
+
+    auto* schedSapUser =
+        new TestSchedSapUserHarq([this](auto params) { StoreFirstServed(params); });
+    auto* cschedSapUser = new TestCschedSapUserHarq();
+
+    // Step 2: register three UEs, each in a beam of its own, so that serving a
+    // beam means serving exactly one UE. The TDMA and OFDMA schedulers share the
+    // HARQ scheduler, so one of them is enough.
+    auto sched = CreateObject<NrMacSchedulerTdmaRR>();
+    sched->InstallDlAmc(CreateObject<NrAmc>());
+    sched->InstallUlAmc(CreateObject<NrAmc>());
+    sched->SetMacSchedSapUser(schedSapUser);
+    sched->SetMacCschedSapUser(cschedSapUser);
+    sched->DoCschedCellConfigReq(cellConfig);
+    const std::vector<uint16_t> rntis = {1, 2, 3};
+    for (size_t i = 0; i < rntis.size(); ++i)
+    {
+        NrMacCschedSapProvider::CschedUeConfigReqParameters config{};
+        config.m_rnti = rntis.at(i);
+        config.m_beamId = BeamId(static_cast<uint16_t>(i), 0);
+        sched->DoCschedUeConfigReq(config);
+    }
+    sched->SetDlCtrlSyms(1);
+    sched->SetUlCtrlSyms(1);
+
+    // Step 3: schedule two full rounds over the beams. In every slot, each UE
+    // whose retransmission was not postponed reports the failure of one transport
+    // block, so all three beams always have exactly one retransmission pending and
+    // compete for the first position.
+    const uint8_t numSym = m_postpone ? 6 : 2;
+    const size_t numSlots = 2 * rntis.size();
+    for (size_t slot = 0; slot < numSlots; ++slot)
+    {
+        // No first transmission is ever scheduled. Instead, the HARQ process is
+        // written directly in the state it would have after one (2 symbols, all
+        // RBGs, waiting for feedback), and a NACK for it is handed to the
+        // scheduler. Each slot uses a new process ID, because the processes of the
+        // previous slots were retransmitted and wait for a feedback that never comes.
+        const auto harqId = static_cast<uint8_t>(slot);
+        NrMacSchedSapProvider::SchedDlTriggerReqParameters paramsDl;
+        NrMacSchedSapProvider::SchedUlTriggerReqParameters paramsUl;
+        const SfnSf sfnSf(0, static_cast<uint8_t>(slot), 0, 0);
+        paramsDl.m_snfSf = sfnSf;
+        paramsDl.m_slotType = LteNrTddSlotType::DL;
+        paramsUl.m_snfSf = sfnSf;
+        paramsUl.m_slotType = LteNrTddSlotType::UL;
+        for (auto rnti : rntis)
+        {
+            // The scheduler keeps the feedback of a postponed retransmission and
+            // retries it in this slot
+            if (slot > 0 && m_servedRntis.back().count(rnti) == 0)
+            {
+                continue;
+            }
+            auto& ueInfo = sched->m_ueMap.find(rnti)->second;
+            auto& harqProcess = m_isDl ? ueInfo->m_dlHarq.Find(harqId)->second
+                                       : ueInfo->m_ulHarq.Find(harqId)->second;
+            DciInfoElementTdma dci(rnti,
+                                   m_isDl ? DciInfoElementTdma::DL : DciInfoElementTdma::UL,
+                                   0,
+                                   numSym,
+                                   10,
+                                   1,
+                                   {},
+                                   // Too large to be reshaped into the symbol left
+                                   // after two 6-symbol retransmissions
+                                   m_postpone ? 10000 : 100,
+                                   1,
+                                   0,
+                                   DciInfoElementTdma::DATA,
+                                   0,
+                                   0);
+            dci.m_harqProcess = harqId;
+            dci.m_rbgBitmask = std::vector<bool>(10, true);
+            harqProcess.m_dciElement = std::make_shared<DciInfoElementTdma>(dci);
+            harqProcess.m_active = true;
+            harqProcess.m_status = HarqProcess::WAITING_FEEDBACK;
+
+            if (m_isDl)
+            {
+                DlHarqInfo harqInfo;
+                harqInfo.m_harqStatus = DlHarqInfo::NACK;
+                harqInfo.m_numRetx = 0;
+                harqInfo.m_rnti = rnti;
+                harqInfo.m_harqProcessId = harqId;
+                harqInfo.m_bwpIndex = 0;
+                paramsDl.m_dlHarqInfoList.push_back(harqInfo);
+            }
+            else
+            {
+                UlHarqInfo harqInfo;
+                harqInfo.m_receptionStatus = UlHarqInfo::NotOk;
+                harqInfo.m_numRetx = 0;
+                harqInfo.m_rnti = rnti;
+                harqInfo.m_harqProcessId = harqId;
+                paramsUl.m_ulHarqInfoList.push_back(harqInfo);
+            }
+        }
+        // Schedule the slot. The retransmissions span all RBGs, so they are placed
+        // one after the other in time: 3 x 2 symbols fit in the 13 data symbols,
+        // while with 3 x 6 symbols the third one is postponed. The scheduler reports
+        // the slot allocation to StoreFirstServed() before this call returns.
+        if (m_isDl)
+        {
+            sched->DoSchedDlTriggerReq(paramsDl);
+        }
+        else
+        {
+            sched->DoSchedUlTriggerReq(paramsUl);
+        }
+    }
+
+    // Step 4: check the sequence of UEs served first, one entry per slot.
+    NS_TEST_ASSERT_MSG_EQ(m_firstRnti.size(), numSlots, "Every slot should be scheduled");
+
+    // Fairness: in the first round (slots 0 to 2), the three slots have three
+    // different UEs served first, so no beam is first twice while another waits.
+    const std::set<uint16_t> firstInCycle(m_firstRnti.begin(), m_firstRnti.begin() + rntis.size());
+    NS_TEST_EXPECT_MSG_EQ(firstInCycle.size(), rntis.size(), "Every beam should be served first");
+
+    // Periodicity: the second round (slots 3 to 5) serves the same UE first as
+    // the slot three slots earlier, so the order is a fixed rotation.
+    for (size_t slot = rntis.size(); slot < numSlots; ++slot)
+    {
+        NS_TEST_EXPECT_MSG_EQ(m_firstRnti.at(slot),
+                              m_firstRnti.at(slot - rntis.size()),
+                              "The round-robin order should repeat");
+    }
+
+    if (m_postpone)
+    {
+        std::vector<uint16_t> postponed;
+        for (const auto& served : m_servedRntis)
+        {
+            for (auto rnti : rntis)
+            {
+                if (served.count(rnti) == 0)
+                {
+                    postponed.push_back(rnti);
+                }
+            }
+        }
+        NS_TEST_ASSERT_MSG_EQ(postponed.size(), numSlots, "One beam should be postponed per slot");
+        for (size_t slot = 1; slot < numSlots; ++slot)
+        {
+            NS_TEST_EXPECT_MSG_NE(postponed.at(slot),
+                                  postponed.at(slot - 1),
+                                  "A beam should not be postponed in two consecutive slots");
+        }
+        for (size_t round = 0; round < numSlots; round += rntis.size())
+        {
+            const std::set<uint16_t> postponedInRound(postponed.begin() + round,
+                                                      postponed.begin() + round + rntis.size());
+            NS_TEST_EXPECT_MSG_EQ(postponedInRound.size(),
+                                  rntis.size(),
+                                  "Every beam should be postponed once per round");
+        }
+    }
+
+    delete schedSapUser;
+    delete cschedSapUser;
+    Simulator::Destroy();
+    Config::Reset();
+}
+
 class NrTestSchedHarqSuite : public TestSuite
 {
   public:
@@ -2773,6 +3199,15 @@ class NrTestSchedHarqSuite : public TestSuite
         : TestSuite("nr-test-sched-harq", Type::UNIT)
     {
         AddTestCase(new NrTestMacSchedulerHarqRrBeamOrder(), Duration::QUICK);
+        AddTestCase(new NrTestMacSchedulerHarqRrSort(true /* DL */), Duration::QUICK);
+        AddTestCase(new NrTestMacSchedulerHarqRrSort(false /* UL */), Duration::QUICK);
+        for (bool postpone : {false, true})
+        {
+            AddTestCase(new NrTestMacSchedulerHarqRrBeamRoundRobin(true /* DL */, postpone),
+                        Duration::QUICK);
+            AddTestCase(new NrTestMacSchedulerHarqRrBeamRoundRobin(false /* UL */, postpone),
+                        Duration::QUICK);
+        }
         AddTestCase(new NrTestMacSchedulerHarqRrSymbolBudget(true /* TDMA */), Duration::QUICK);
         AddTestCase(new NrTestMacSchedulerHarqRrSymbolBudget(false /* OFDMA */), Duration::QUICK);
         AddTestCase(new NrTestMacSchedulerHarqRrOfdmaSharing(false /* not consolidated */),
