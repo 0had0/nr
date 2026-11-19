@@ -557,10 +557,14 @@ NrInitialAssociation::FindAssociatedGnb()
     {
         PopulateRsrps(localParams);
     }
+    // Compute each RSRP once: recomputing it may round differently (e.g., FMA
+    // contraction), and the strongest gNB would then not be within a zero margin
+    std::vector<double> rsrpDb(m_bestBeams.size());
     double maxVal = -std::numeric_limits<double>::infinity();
     for (size_t i = 0; i < m_bestBeams.size(); i++)
     {
-        maxVal = std::max(maxVal, GetMaxRsrp(i));
+        rsrpDb[i] = GetMaxRsrp(i);
+        maxVal = std::max(maxVal, rsrpDb[i]);
     }
     NS_ABORT_MSG_IF(std::isinf(maxVal), "The UE is out of range of all the gNBs");
 
@@ -568,7 +572,7 @@ NrInitialAssociation::FindAssociatedGnb()
     std::vector<bool> assocFlag(m_bestBeams.size());
     for (size_t i = 0; i < m_bestBeams.size(); i++)
     {
-        assocFlag[i] = (maxVal - GetMaxRsrp(i)) <= m_handoffMargin;
+        assocFlag[i] = (maxVal - rsrpDb[i]) <= m_handoffMargin;
     }
     auto numPossibleGnb = std::accumulate(assocFlag.begin(), assocFlag.end(), 0);
 
@@ -583,7 +587,7 @@ NrInitialAssociation::FindAssociatedGnb()
         if (count == int(value))
         {
             m_associatedGnb = m_gnbDevices.Get(i);
-            m_rsrpAsscGnb = GetMaxRsrp(i);
+            m_rsrpAsscGnb = rsrpDb[i];
             SetUeActivePanel(m_bestBeams[i].panel);
             return std::make_pair(m_associatedGnb, m_rsrpAsscGnb);
         }
