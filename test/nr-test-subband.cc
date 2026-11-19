@@ -487,6 +487,8 @@ class TestSubband : public TestSuite
                     Duration::QUICK);
             }
         }
+        // The PMI searches need the Eigen MIMO matrices
+#ifdef HAVE_EIGEN3
         std::vector<std::string> searchTypes{"ns3::NrPmSearchFull",
                                              "ns3::NrPmSearchFast",
                                              "ns3::NrPmSearchIdeal",
@@ -505,6 +507,7 @@ class TestSubband : public TestSuite
 #ifdef PMI_MALEKI
         AddTestCase(new NrPmSearchMalekiBeamTestCase(4), Duration::QUICK);
         AddTestCase(new NrPmSearchMalekiBeamTestCase(2), Duration::QUICK);
+#endif
 #endif
     }
 };
