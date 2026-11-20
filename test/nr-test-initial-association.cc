@@ -200,11 +200,11 @@ NrInitialAssociationActivePanelTestCase::CheckPanels(Ptr<NetDevice> ue,
 {
     // Check the setup: the best panel of each gNB, when it is the only one
     auto nearAssociation = Associate(ue, NetDeviceContainer(gnbDevices.Get(m_nearIdx)));
-    NS_TEST_ASSERT_MSG_EQ(nearAssociation->GetUeActivePanel(),
+    NS_TEST_ASSERT_MSG_EQ(+nearAssociation->GetUeActivePanel(),
                           0,
                           "The near gNB should be best received by panel 0");
     auto farAssociation = Associate(ue, NetDeviceContainer(gnbDevices.Get(m_farIdx)));
-    NS_TEST_ASSERT_MSG_EQ(farAssociation->GetUeActivePanel(),
+    NS_TEST_ASSERT_MSG_EQ(+farAssociation->GetUeActivePanel(),
                           1,
                           "The far gNB should be best received by panel 1");
 
@@ -215,7 +215,7 @@ NrInitialAssociationActivePanelTestCase::CheckPanels(Ptr<NetDevice> ue,
     NS_TEST_EXPECT_MSG_EQ(association->GetAssociatedGnb(),
                           gnbDevices.Get(m_nearIdx),
                           "The UE should associate with the near gNB");
-    NS_TEST_EXPECT_MSG_EQ(association->GetUeActivePanel(),
+    NS_TEST_EXPECT_MSG_EQ(+association->GetUeActivePanel(),
                           0,
                           "The UE should activate the best panel of its associated gNB");
 
@@ -230,7 +230,7 @@ NrInitialAssociationActivePanelTestCase::CheckPanels(Ptr<NetDevice> ue,
                               association->GetMaxRsrp(m_nearIdx),
                               1e-9,
                               "A search with new gNBs should return the RSRP of the near gNB");
-    NS_TEST_EXPECT_MSG_EQ(reused->GetUeActivePanel(),
+    NS_TEST_EXPECT_MSG_EQ(+reused->GetUeActivePanel(),
                           0,
                           "A search with new gNBs should activate the panel of the near gNB");
 }
