@@ -637,6 +637,10 @@ NrSlUeMac::GetCandidateResourcesPrivate(const SfnSf& sfn,
                             }
                         }
                     }
+                    if (erased)
+                    {
+                        break; // break for itFutureCand
+                    }
                 }
                 if (erased)
                 {
