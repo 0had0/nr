@@ -93,6 +93,13 @@ NrUePhy::GetTypeId()
                           DoubleValue(2.0),
                           MakeDoubleAccessor(&NrUePhy::m_txPower),
                           MakeDoubleChecker<double>())
+            .AddAttribute("SlPsfchProcessingDelay",
+                          "Time from the end of a received PSFCH to the delivery of its HARQ "
+                          "feedback to the MAC (PSFCH decoding and processing). Negative: one "
+                          "slot (5G-LENA's provisional value)",
+                          TimeValue(Seconds(-1)),
+                          MakeTimeAccessor(&NrUePhy::m_slPsfchProcessingDelay),
+                          MakeTimeChecker())
             .AddAttribute(
                 "NoiseFigure",
                 "Loss (dB) in the Signal-to-Noise-Ratio due to non-idealities in the receiver."
@@ -2127,9 +2134,10 @@ NrUePhy::PhyPsfchReceived(uint32_t sendingNodeId, SlHarqInfo harqInfo)
 {
     NS_LOG_FUNCTION(this << sendingNodeId);
     Simulator::ScheduleWithContext(m_netDevice->GetNode()->GetId(),
-                                   // Add PSFCH decode latency here
-                                   // XXX provisional value of 1 slot
-                                   GetSlotPeriod(),
+                                   // PSFCH decode latency (default: 5G-LENA's
+                                   // provisional value of 1 slot)
+                                   m_slPsfchProcessingDelay.IsNegative() ? GetSlotPeriod()
+                                                                         : m_slPsfchProcessingDelay,
                                    &NrSlUePhySapUser::ReceivePsfch,
                                    m_nrSlUePhySapUser,
                                    sendingNodeId,
