@@ -810,6 +810,8 @@ class NrSlUeMac : public NrUeMac
                                   //!< reception
     bool m_slDynExclusion{false};      //!< sensing: step 6 also for grants with P_rsvp_TX = 0
 
+    bool m_slProjectAnnounced{false};  //!< sensing: project the retransmissions announced in
+                                       //!< the current period (and by dynamic grants)
     bool m_enableSensing{false};  //!< Flag to enable NR Sidelink resource selection based on
                                   //!< sensing; otherwise, use random selection
     uint8_t m_minTimeGapProcessing{
