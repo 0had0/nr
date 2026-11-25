@@ -556,6 +556,15 @@ NrSlUeMacSchedulerFixedMcs::TxResourceReselectionCheck(const SfnSf& sfn,
                 {
                     NS_LOG_DEBUG("slResoReselCounter != 0");
                 }
+                if (!pass && GetMac()->GetSpsReselectOnMisfit())
+                {
+                    pass = SpsMisfitCheck(sfn,
+                                          dstL2Id,
+                                          lcId,
+                                          lcBufferSize,
+                                          itGrantInfo->second,
+                                          itGrantFoundLc);
+                }
             }
         }
     }
@@ -605,6 +614,90 @@ NrSlUeMacSchedulerFixedMcs::KeepSpsResource(const SfnSf& sfn,
     NS_LOG_INFO("SPS resource to " << published.slotAllocations.begin()->dstL2Id
                                    << " kept for " << +grant.slResoReselCounter << " periods");
     NotifySpsKept(published.slotAllocations.begin()->dstL2Id, grant.slResoReselCounter);
+    return true;
+}
+
+bool
+NrSlUeMacSchedulerFixedMcs::SpsMisfitCheck(const SfnSf& sfn,
+                                           uint32_t dstL2Id,
+                                           uint8_t lcId,
+                                           uint32_t lcBufferSize,
+                                           std::vector<GrantInfo>& grants,
+                                           std::vector<GrantInfo>::iterator itGrant)
+{
+    NS_LOG_FUNCTION(this << sfn << dstL2Id << +lcId << lcBufferSize);
+    if (itGrant->slotAllocations.empty())
+    {
+        return false;
+    }
+    const SlGrantResource& first = *itGrant->slotAllocations.begin();
+    uint32_t allocated = 0;
+    uint32_t allocatedOthers = 0;
+    for (const auto& r : first.slRlcPduInfo)
+    {
+        (r.lcid == lcId ? allocated : allocatedOthers) += r.size;
+    }
+    if (lcBufferSize <= allocated)
+    {
+        return false;
+    }
+    // TB of the grant at the configured MCS, same sizing as at the selection
+    // (9 PSSCH symbols, 5 bytes of SCI-2A)
+    const auto itDstInfo = m_dstMap.find(dstL2Id);
+    uint32_t capacity = CalculateTbSize(GetAmc(),
+                                        itDstInfo->second->GetDstMcs(),
+                                        9,
+                                        first.slPsschSubChLength,
+                                        GetMac()->GetNrSlSubChSize());
+    capacity = capacity > 5 ? capacity - 5 : 0;
+    const uint32_t room = capacity > allocatedOthers ? capacity - allocatedOthers : 0;
+    if (lcBufferSize <= room)
+    {
+        // the grant accommodates the SDU: allocate it whole instead of a segment
+        std::set<SlGrantResource> updated;
+        for (auto slot : itGrant->slotAllocations)
+        {
+            for (auto& r : slot.slRlcPduInfo)
+            {
+                if (r.lcid == lcId)
+                {
+                    r.size = lcBufferSize;
+                }
+            }
+            updated.insert(slot);
+        }
+        itGrant->slotAllocations = updated;
+        NS_LOG_INFO("SPS grant to " << dstL2Id << " LC " << +lcId << " enlarged from "
+                                    << allocated << " to " << lcBufferSize << " bytes");
+        NotifySpsMisfit(dstL2Id, lcId, lcBufferSize, allocated, capacity, false);
+        return false;
+    }
+    NS_LOG_INFO("SPS grant to " << dstL2Id << " LC " << +lcId << " (TB " << capacity
+                                << " bytes) cannot carry " << lcBufferSize
+                                << " bytes: resource reselection");
+    NotifySpsMisfit(dstL2Id, lcId, lcBufferSize, allocated, capacity, true);
+    const uint8_t harqId = itGrant->harqId;
+    grants.erase(itGrant);
+    // the HARQ process may still be in use by the slots already published to the
+    // MAC (retransmissions of the previous TB): release it after them
+    SfnSf last;
+    if (GetMac()->GetSlGrantLastSlot(dstL2Id, harqId, last) && sfn <= last)
+    {
+        SfnSf end = last;
+        end.Add(1);
+        for (uint16_t k = 0; GetMac()->GetPsfchPeriod() && k < 64 && !GetMac()->SlotHasPsfch(end);
+             ++k)
+        {
+            end.Add(1);
+        }
+        const auto timePerSlot = MicroSeconds(1000 >> sfn.GetNumerology());
+        const auto timeout = timePerSlot * (end.Normalize() + 2 - sfn.Normalize());
+        GetMacHarq()->RenewHarqProcessIdTimer(harqId, timeout);
+    }
+    else
+    {
+        GetMacHarq()->DeallocateHarqProcessId(harqId);
+    }
     return true;
 }
 
