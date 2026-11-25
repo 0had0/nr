@@ -86,11 +86,48 @@ class NrSlSciF2aHeader : public NrSlSciF2Header
     void SetNdiBit(uint8_t ndiBit);
 
     /**
+     * Cooperative HARQ (chained reservations) side information.
+     *
+     * Carried in the simulated SCI-2A so a designated helper can relay a TB in
+     * the reserved retransmission slots the leader gives up, and so receivers
+     * can soft-combine the helper's copy with the leader's HARQ process. In a
+     * real system the helper would read the slots / subchannels / MCS from the
+     * leader's SCI-1A; only the helper id would need a few SCI-2 bits. These
+     * fields therefore do NOT count towards the SCI-2A size used by the error
+     * model: see GetAirSize().
+     */
+    struct CoopInfo
+    {
+        uint32_t helperId{0};       //!< RNTI of the designated helper (0 = none)
+        uint16_t relayedFromRnti{0}; //!< set by a helper: RNTI of the original TX (0 = own TB)
+        uint64_t relaySlot[2]{0, 0}; //!< SfnSf encodings of the slots handed to the helper (0 = none)
+        uint8_t relaySbStart[2]{0, 0}; //!< start subchannel of those slots
+        uint8_t sbLength{0};         //!< subchannels of the TB
+        uint8_t mcs{0};              //!< MCS of the TB
+        uint32_t tbSize{0};          //!< TB size (bytes)
+        uint16_t pscchRbs{0};        //!< PSCCH PRBs of the pool
+        uint8_t pscchSymStart{0};    //!< PSCCH first symbol
+        uint8_t pscchSymLength{0};   //!< PSCCH symbols
+        uint8_t psschSymStart{0};    //!< PSSCH first symbol
+        uint8_t psschSymLength{0};   //!< PSSCH symbols in a slot without PSFCH (3 fewer with)
+        uint8_t ownRes{0};           //!< 1: the helper selects its own relay resources
+        uint8_t relayTxMax{0};       //!< own resources: max relay transmissions
+        uint64_t deadline{0};        //!< own resources: SfnSf encoding of the packet deadline
+    };
+
+    void SetHelperId(uint32_t helperId);
+    uint32_t GetHelperId() const;
+    void SetCoopInfo(const CoopInfo& info);
+    const CoopInfo& GetCoopInfo() const;
+
+    /**
      * \brief Size of the SCI-2A on the air (stage-2 format 2A fields only),
      * used by the PHY error model; excludes the simulation side information.
      */
     uint32_t GetAirSize() const;
 
+    /// true if helperId or relayedFromRnti is set (side information serialized)
+    bool HasCoopInfo() const;
 
     /**
      * \brief Get the HARQ feedback enabled/disabled indicator field value
@@ -141,6 +178,7 @@ class NrSlSciF2aHeader : public NrSlSciF2Header
     uint8_t m_castType{Broadcast}; //!< The type of communication this NrSlSciF2aHeader is used for
     uint8_t m_csiReq{0};           //!< The channel state information request flag
     uint8_t m_ndiBit{0};           //!< 3GPP NDI bit, toggled per new TB of the HARQ process
+    CoopInfo m_coop;               //!< cooperative HARQ side information (not on the air)
 
     static std::vector<CastTypeIndicator_t>
         m_allowedCastType; //!< Vector of allowed Stage 2 SCI formats, to speed up checking
