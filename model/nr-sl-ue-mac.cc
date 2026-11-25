@@ -1199,6 +1199,13 @@ NrSlUeMac::DoNrSlSlotIndication(const SfnSf& sfn)
                 NrSlSciF2aHeader sciF2a;
                 sciF2a.SetHarqId(currentGrant.harqId);
                 sciF2a.SetNdi(currentSlot.ndi);
+                // 3GPP NDI bit: toggled at each new TB of the HARQ process
+                uint8_t& ndiBit = m_slNdiBit[{currentSlot.dstL2Id, currentGrant.harqId}];
+                if (currentSlot.ndi)
+                {
+                    ndiBit ^= 1;
+                }
+                sciF2a.SetNdiBit(ndiBit);
                 sciF2a.SetRv(currentSlot.rv);
                 sciF2a.SetSrcId(m_srcL2Id);
                 sciF2a.SetDstId(currentSlot.dstL2Id);

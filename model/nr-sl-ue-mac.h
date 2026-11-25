@@ -826,6 +826,8 @@ class NrSlUeMac : public NrUeMac
     std::unordered_set<uint32_t>
         m_sidelinkRxDestinations; //!< vector holding Sidelink communication destinations for
                                   //!< reception
+    std::map<std::pair<uint32_t, uint8_t>, uint8_t>
+        m_slNdiBit; //!< SCI-2A NDI bit per (destination, HARQ id), toggled at each new TB
     bool m_slDynExclusion{false};      //!< sensing: step 6 also for grants with P_rsvp_TX = 0
 
     bool m_slProjectAnnounced{false};  //!< sensing: project the retransmissions announced in

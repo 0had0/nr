@@ -183,6 +183,28 @@ NrSpectrumPhy::GetTypeId()
                 BooleanValue(false),
                 MakeBooleanAccessor(&NrSpectrumPhy::DropTbOnRbOnCollision),
                 MakeBooleanChecker())
+            .AddAttribute("SlAckPrevDecodedTb",
+                          "ACK a sidelink retransmission of a TB this UE already decoded when "
+                          "the SCI-2A enables HARQ feedback (TS 38.321 5.22.2.2). When false, "
+                          "such a retransmission gets no feedback, which a Groupcast Option-2 "
+                          "transmitter reads as DTX, i.e. NACK.",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&NrSpectrumPhy::m_slAckPrevDecodedTb),
+                          MakeBooleanChecker())
+            .AddAttribute("SlBlindSoftCombining",
+                          "Soft-combine sidelink copies of a TB sent with HARQ feedback "
+                          "disabled (blind retransmissions). False: every copy is decoded "
+                          "on its own, as independent attempts.",
+                          BooleanValue(true),
+                          MakeBooleanAccessor(&NrSpectrumPhy::m_slBlindSoftCombining),
+                          MakeBooleanChecker())
+            .AddAttribute("SlSoftCombining",
+                          "Soft-combine (HARQ-IR) every sidelink retransmission with the earlier "
+                          "copies of its TB. False: every copy is decoded on its own (ablation "
+                          "of the HARQ-IR gain); overrides SlBlindSoftCombining.",
+                          BooleanValue(true),
+                          MakeBooleanAccessor(&NrSpectrumPhy::m_slSoftCombining),
+                          MakeBooleanChecker())
             .AddTraceSource("RxPacketTraceEnb",
                             "The no. of packets received and transmitted by the Base Station",
                             MakeTraceSourceAccessor(&NrSpectrumPhy::m_rxPacketTraceEnb),
@@ -245,6 +267,11 @@ NrSpectrumPhy::GetTypeId()
             .AddTraceSource("SlSci2aDecodeFailure",
                             "The sidelink SCI-2a transmission failed to decode",
                             MakeTraceSourceAccessor(&NrSpectrumPhy::m_slSci2aDecodeFailures),
+                            "ns3::TracedValueCallback::Uint64")
+            .AddTraceSource("SlNdiToggleNewTb",
+                            "Sidelink receptions whose toggled SCI-2A NDI bit revealed a new TB "
+                            "while the simulator's new-data flag was 0 (first transmission missed)",
+                            MakeTraceSourceAccessor(&NrSpectrumPhy::m_slNdiToggleNewTb),
                             "ns3::TracedValueCallback::Uint64")
             .AddTraceSource("SlTbDecodeFailure",
                             "The sidelink TB transmission failed to decode",
@@ -2460,6 +2487,28 @@ NrSpectrumPhy::RxSlPscch(std::vector<uint32_t> paramIndexes)
     }
 }
 
+bool
+NrSpectrumPhy::SlNdiNewTb(uint16_t harqRnti, const NrSlSciF2aHeader& sci)
+{
+    const std::pair<uint16_t, uint8_t> process{harqRnti, sci.GetHarqId()};
+    auto it = m_slNdiBit.find(process);
+    if (it != m_slNdiBit.end() && it->second == sci.GetNdiBit())
+    {
+        return false;
+    }
+    m_slNdiBit[process] = sci.GetNdiBit();
+    if (!sci.GetNdi())
+    {
+        // the first transmission of this TB was missed: without the flush, this copy would be
+        // skipped as the previous TB of the process or combined with its copies. With the
+        // "new data" flag set, the caller's NDI reset does the same.
+        m_slNdiToggleNewTb++;
+        m_harqPhyModule->RemovePrevDecoded(harqRnti, sci.GetHarqId());
+        m_harqPhyModule->ResetSlDataHarqProcessStatus(harqRnti, sci.GetHarqId());
+    }
+    return true;
+}
+
 void
 NrSpectrumPhy::RxSlPssch(std::vector<uint32_t> paramIndexes)
 {
@@ -2554,6 +2603,27 @@ NrSpectrumPhy::RxSlPssch(std::vector<uint32_t> paramIndexes)
         }
     }
 
+    // TS 38.321 5.22.2.2: a retransmission of a TB this UE already decoded is
+    // ACKed when its SCI-2A enables HARQ feedback (off by default: 5G-LENA
+    // sends no feedback for it)
+    auto ackPrevDecoded = [this, &ueRx](const std::pair<const uint16_t, TransportBlockInfo>& tb,
+                                        const NrSlSciF2aHeader& sci,
+                                        uint16_t harqRnti) {
+        if (!m_slAckPrevDecodedTb || !sci.GetHarqFbIndicator() ||
+            m_phySlHarqFeedbackCallback.IsNull())
+        {
+            return;
+        }
+        SlHarqInfo slHarqInfo;
+        slHarqInfo.m_txRnti = tb.first;
+        slHarqInfo.m_rnti = ueRx->GetPhy(GetBwpId())->GetRnti();
+        slHarqInfo.m_dstL2Id = sci.GetDstId();
+        slHarqInfo.m_harqProcessId = sci.GetHarqId();
+        slHarqInfo.m_bwpIndex = GetBwpId();
+        slHarqInfo.m_harqStatus = SlHarqInfo::ACK;
+        m_phySlHarqFeedbackCallback(slHarqInfo);
+    };
+
     // Compute the error and check for collision for each expected TB
     for (auto& tbIt : m_slTransportBlocks)
     {
@@ -2612,7 +2682,7 @@ NrSpectrumPhy::RxSlPssch(std::vector<uint32_t> paramIndexes)
             tbIt.second.m_outputEmForSci2 = m_slErrorModel->GetTbDecodificationStats(
                 tbIt.second.m_sinrPerceived,
                 tbIt.second.m_expected.m_rbBitmap,
-                sciF2a.GetSerializedSize() /*5 bytes is the fixed size of SCI-stage 2 Format 2A*/,
+                sciF2a.GetAirSize() /*5 bytes: SCI-2A fields only, no simulation side info*/,
                 Sci2Mcs,
                 NrErrorModel::NrErrorModelHistory());
             // check the decodification of SCI stage 2 with a random probability
@@ -2629,6 +2699,13 @@ NrSpectrumPhy::RxSlPssch(std::vector<uint32_t> paramIndexes)
                 m_slSci2aDecodeFailures++;
                 // If SCI stage 2 is corrupted, data is also corrupted.
                 tbIt.second.m_isCorrupted = true;
+
+                if (m_slAckPrevDecodedTb)
+                {
+                    // the missed SCI-2A may carry a new TB (NDI): forget the previous TB
+                    // of this HARQ process so a later retransmission is not ACKed as held
+                    m_harqPhyModule->RemovePrevDecoded(tbIt.first, sciF2a.GetHarqId());
+                }
 
                 // Trace
                 SlRxDataPacketTraceParams traceParams;
@@ -2666,6 +2743,9 @@ NrSpectrumPhy::RxSlPssch(std::vector<uint32_t> paramIndexes)
                 NS_LOG_DEBUG(this << " PSSCH SCI stage 2 decoding succeeded, errorRate "
                                   << tbIt.second.m_outputEmForSci2->m_tbler);
             }
+            {
+                SlNdiNewTb(tbIt.first, sciF2a);
+            }
             if (sciF2a.GetNdi())
             {
                 NS_LOG_DEBUG("RemovePrevDecoded: " << +sciF2a.GetHarqId()
@@ -2679,10 +2759,17 @@ NrSpectrumPhy::RxSlPssch(std::vector<uint32_t> paramIndexes)
             {
                 NS_LOG_DEBUG(
                     "Do not dispatch already decoded TB; may be blind retx: " << tbIt.first);
+                ackPrevDecoded(tbIt, sciF2a, tbIt.first);
                 continue;
             }
 
             NS_LOG_DEBUG("Trying to decode the PSSCH TB from RNTI : " << tbIt.first);
+            if (!m_slSoftCombining || (!m_slBlindSoftCombining && !sciF2a.GetHarqFbIndicator()))
+            {
+                // blind (HARQ feedback disabled) copies decoded independently: no
+                // soft combining with earlier copies of the TB
+                m_harqPhyModule->ResetSlDataHarqProcessStatus(tbIt.first, sciF2a.GetHarqId());
+            }
             // Since we do not rely on RV to track the number of transmissions,
             // before decoding the data, erase the HARQ history of a TB
             // which was not decoded and received from the same rnti and HARQ
@@ -2764,6 +2851,7 @@ NrSpectrumPhy::RxSlPssch(std::vector<uint32_t> paramIndexes)
         }
         else // No error model enabled
         {
+            SlNdiNewTb(tbIt.first, sciF2a);
             if (sciF2a.GetNdi())
             {
                 NS_LOG_DEBUG("RemovePrevDecoded: " << +sciF2a.GetHarqId()
@@ -2775,6 +2863,7 @@ NrSpectrumPhy::RxSlPssch(std::vector<uint32_t> paramIndexes)
             // Do not dispatch already decoded TBs to UE PHY (may be a blind retx)
             if (m_harqPhyModule->IsPrevDecoded(tbIt.first, sciF2a.GetHarqId()))
             {
+                ackPrevDecoded(tbIt, sciF2a, tbIt.first);
                 continue;
             }
 
