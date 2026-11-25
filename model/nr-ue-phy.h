@@ -796,6 +796,7 @@ class NrUePhy : public NrPhy
 
     Time m_wbCqiLast;
     Time m_lastSlotStart; //!< Time of the last slot start
+    Time m_slPsfchProcessingDelay{Seconds(-1)}; //!< PSFCH reception to MAC (< 0: one slot)
 
     bool m_ulConfigured{false};     //!< Flag to indicate if RRC configured the UL
     bool m_receptionEnabled{false}; //!< Flag to indicate if we are currently receiving data
