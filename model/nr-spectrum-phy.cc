@@ -2891,7 +2891,9 @@ void
 NrSpectrumPhy::RxSlPsfch(std::vector<uint32_t> paramIndexes)
 {
     NS_LOG_FUNCTION(this << "Number of PSFCH messages:" << paramIndexes.size());
-    for (uint32_t i = 0; i < m_slRxSigParamInfo.size(); i++)
+    // (stock loop bound was m_slRxSigParamInfo.size(); a PSFCH frame holds PSFCH signals only, so
+    // the two sizes are equal, but paramIndexes is the vector indexed)
+    for (uint32_t i = 0; i < paramIndexes.size(); i++)
     {
         uint32_t pktIndex = paramIndexes[i];
         Ptr<NrSpectrumSignalParametersSlFeedback> feedbackParams =
