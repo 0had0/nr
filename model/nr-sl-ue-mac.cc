@@ -64,6 +64,16 @@ NrSlUeMac::GetTypeId()
                           BooleanValue(false),
                           MakeBooleanAccessor(&NrSlUeMac::m_slDynExclusion),
                           MakeBooleanChecker())
+                        .AddAttribute("SlProjectAnnounced",
+                                      "Sensing (TS 38.214 sec. 8.1.4 step 6): also project the "
+                                      "retransmission resources an SCI-1A announces in its own period "
+                                      "(TRIV gaps from the sensed slot), including those of SCIs without "
+                                      "a reservation period (dynamic grants). False: stock behaviour, "
+                                      "announced retransmissions are projected only into the next "
+                                      "reservation periods, never for a period of 0",
+                                      BooleanValue(false),
+                                      MakeBooleanAccessor(&NrSlUeMac::m_slProjectAnnounced),
+                                      MakeBooleanChecker())
             .AddAttribute("EnableSensing",
                           "Flag to enable NR Sidelink resource selection based on sensing; "
                           "otherwise, use random selection",
@@ -795,6 +805,35 @@ NrSlUeMac::ExcludeReservedResources(SensingData sensedData,
         NS_LOG_DEBUG("tScalMs: " << tScalMs << " pRsvpMs: " << pRsvpMs);
     }
     uint16_t pPrimeRsvpRx = resvPeriodSlots;
+
+    if (m_slProjectAnnounced)
+    {
+        // retransmissions announced by the sensed SCI-1A in its own period (the
+        // TRIV gaps count from the sensed slot); for a sensed SCI without a
+        // reservation period (dynamic grant) these are its only reservations
+        if (sensedData.gapReTx1 != std::numeric_limits<uint8_t>::max())
+        {
+            ReservedResource reTx1Slot(sensedData.sfn,
+                                       sensedData.rsvp,
+                                       sensedData.sbChLength,
+                                       sensedData.sbChStartReTx1,
+                                       sensedData.prio,
+                                       sensedData.slRsrp);
+            reTx1Slot.sfn = sensedData.sfn.GetFutureSfnSf(sensedData.gapReTx1);
+            resourceList.emplace_back(reTx1Slot);
+        }
+        if (sensedData.gapReTx2 != std::numeric_limits<uint8_t>::max())
+        {
+            ReservedResource reTx2Slot(sensedData.sfn,
+                                       sensedData.rsvp,
+                                       sensedData.sbChLength,
+                                       sensedData.sbChStartReTx2,
+                                       sensedData.prio,
+                                       sensedData.slRsrp);
+            reTx2Slot.sfn = sensedData.sfn.GetFutureSfnSf(sensedData.gapReTx2);
+            resourceList.emplace_back(reTx2Slot);
+        }
+    }
 
     for (uint16_t i = 1; i <= q; i++)
     {
