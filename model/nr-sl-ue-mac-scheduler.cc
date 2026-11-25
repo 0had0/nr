@@ -36,7 +36,12 @@ NrSlUeMacScheduler::GetTypeId()
             .AddTraceSource("GrantPublished",
                             "Trace the publishing of a grant to the NrSlUeMac",
                             MakeTraceSourceAccessor(&NrSlUeMacScheduler::m_grantPublishedTrace),
-                            "ns3::NrSlUeMacScheduler::GrantPublishedCallback");
+                            "ns3::NrSlUeMacScheduler::GrantPublishedCallback")
+            .AddTraceSource("SpsResourceKept",
+                            "An SPS resource kept at reselection-counter expiry "
+                            "(sl-ProbResourceKeep)",
+                            MakeTraceSourceAccessor(&NrSlUeMacScheduler::m_spsKeptTrace),
+                            "ns3::NrSlUeMacScheduler::SpsKeptTracedCallback");
     return tid;
 }
 
@@ -128,6 +133,12 @@ void
 NrSlUeMacScheduler::NotifyGrantPublished(const struct NrSlUeMac::NrSlGrant& grant) const
 {
     m_grantPublishedTrace(grant, m_ueMac->GetPsfchPeriod());
+}
+
+void
+NrSlUeMacScheduler::NotifySpsKept(uint32_t dstL2Id, uint8_t counter) const
+{
+    m_spsKeptTrace(dstL2Id, counter);
 }
 
 } // namespace ns3

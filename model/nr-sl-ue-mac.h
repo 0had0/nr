@@ -350,6 +350,16 @@ class NrSlUeMac : public NrUeMac
     bool SlotHasPsfch(const SfnSf& sfn) const;
 
     /**
+     * \brief Last slot of the published grants to dstL2Id on harqId
+     *
+     * \param dstL2Id The destination layer 2 id
+     * \param harqId The HARQ process id
+     * \param last Set to the last remaining slot, if any
+     * \return true if a published grant with remaining slots exists
+     */
+    bool GetSlGrantLastSlot(uint32_t dstL2Id, uint8_t harqId, SfnSf& last) const;
+
+    /**
      * \brief Get the reservation period in slots
      *
      * Wrapper method that calls NrSlCommResourcePool::GetResvPeriodInSlots
