@@ -1035,6 +1035,11 @@ class NrSpectrumPhy : public SpectrumPhy
                                       //!< TB with HARQ feedback enabled is ACKed (TS 38.321
                                       //!< 5.22.2.2); false keeps it silent (5G-LENA default)
     bool m_slSoftCombining{true};      //!< soft-combine every retransmission (HARQ-IR)
+    double m_slHelperMissProb{0.0};    //!< controlled experiment: the named helper misses the
+                                       //!< source's first copy of a TB with this probability
+    uint8_t m_slHelperMissMode{0};     //!< 0: SCI-2A decoded, TB failed (NACK, not stored);
+                                       //!< 1: SCI-2A failed (silent)
+    Ptr<UniformRandomVariable> m_slHelperMissRv{nullptr}; //!< own stream, created on first use
     uint8_t m_slPsfchErrorMode{0};     //!< PSFCH reception errors: 0 none (stock, error-free),
                                        //!< 1 forced (SlPsfchMissProb), 2 SNR with the PSCCH error model
     double m_slPsfchMissProb{0.0};     //!< mode 1: a received ACK/NACK is lost (read as DTX)
@@ -1095,6 +1100,7 @@ class NrSpectrumPhy : public SpectrumPhy
         m_rxPsschTraceUe;                          //!< trace source for PSSCH reception
     TracedValue<uint64_t> m_slPscchDecodeFailures; //!< Count of observed PSCCH decode failures
     TracedValue<uint64_t> m_slSci2aDecodeFailures; //!< Count of observed SCI 2a decode failures
+    TracedValue<uint64_t> m_slHelperForcedMiss; //!< first copies the named helper was forced to miss
     TracedValue<uint64_t> m_slNdiToggleNewTb; //!< receptions whose toggled NDI bit revealed a
                                               //!< new TB while the "new data" flag was 0
     TracedValue<uint64_t> m_slTbDecodeFailures;    //!< Count of observed TB decode failures
