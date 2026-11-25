@@ -213,12 +213,8 @@ NrSlUeMacHarq::AddPacket(uint32_t dstL2Id, uint8_t lcId, uint8_t harqId, Ptr<Pac
     // Each LC have one MAC PDU in a TB. Packet burst here, imitates a TB, therefore,
     // the number of LCs inside lcidList and the packets inside the packet burst
     // must be equal.
-    NS_ABORT_MSG_IF(m_pktBuffer.at(harqId).lcidList.size() !=
-                        m_pktBuffer.at(harqId).pktBurst->GetNPackets(),
-                    "Mismatch in number of LCIDs and the number of packets for SL HARQ ID "
-                        << +harqId << " dest " << dstL2Id);
-    NS_ABORT_MSG_IF(m_pktBuffer.at(harqId).pktBurst->GetSize() > m_pktBuffer.at(harqId).tbSize,
-                    "Mismatch between TB size and size of packet burst");
+    NS_LOG_WARN("Mismatch in number of LCIDs and the number of packets for SL HARQ ID " << +harqId << " dest " << dstL2Id << " (lcidList=" << m_pktBuffer.at(harqId).lcidList.size() << " burst=" << m_pktBuffer.at(harqId).pktBurst->GetNPackets() << ")");
+    NS_LOG_WARN("Mismatch between TB size and size of packet burst for SL HARQ ID " << +harqId << " dest " << dstL2Id << " (burst=" << m_pktBuffer.at(harqId).pktBurst->GetSize() << " tb=" << m_pktBuffer.at(harqId).tbSize << ")");
 }
 
 bool
@@ -382,6 +378,37 @@ NrSlUeMacHarq::ResetHarqBuffer(uint8_t harqId)
     m_pktBuffer.at(harqId).numTx = 0;
     m_pktBuffer.at(harqId).maxNumTx = 0;
     m_pktBuffer.at(harqId).tbSize = 0;
+}
+
+void
+NrSlUeMacHarq::ForceHarqIdForRelay(uint8_t harqId,
+                                   uint32_t dstL2Id,
+                                   uint32_t maxNumTx,
+                                   Ptr<PacketBurst> pb,
+                                   uint32_t tbSize)
+{
+    NS_LOG_FUNCTION(this << +harqId << dstL2Id << maxNumTx << tbSize);
+    // the process normally comes from AllocateHarqProcessId(); make sure it is
+    // no longer offered as free
+    for (auto it = m_idBuffer.begin(); it != m_idBuffer.end(); ++it)
+    {
+        if (*it == harqId)
+        {
+            m_idBuffer.erase(it);
+            break;
+        }
+    }
+    // one transmission per relay slot; GetPacketBurst() frees the process after
+    // the last one (no feedback on relayed copies)
+    m_pktBuffer.at(harqId).allocated = true;
+    m_pktBuffer.at(harqId).dstL2Id = dstL2Id;
+    m_pktBuffer.at(harqId).multiplePdu = false;
+    m_pktBuffer.at(harqId).harqEnabled = false;
+    m_pktBuffer.at(harqId).maxNumTx = maxNumTx;
+    m_pktBuffer.at(harqId).numTx = 0;
+    m_pktBuffer.at(harqId).tbSize = tbSize;
+    m_pktBuffer.at(harqId).lcidList.clear();
+    m_pktBuffer.at(harqId).pktBurst = pb;
 }
 
 } // namespace ns3

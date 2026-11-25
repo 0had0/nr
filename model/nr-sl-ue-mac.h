@@ -8,6 +8,7 @@
 #define NR_SL_UE_MAC_H
 
 #include "nr-sl-phy-mac-common.h"
+#include "nr-sl-sci-f2a-header.h"
 #include "nr-sl-ue-phy-sap.h"
 #include "nr-ue-mac.h"
 
@@ -17,6 +18,7 @@
 
 #include <map>
 #include <unordered_map>
+#include <set>
 #include <unordered_set>
 
 // test classes outside of namespace ns3
@@ -86,7 +88,52 @@ class NrSlUeMac : public NrUeMac
         uint32_t tbSize{0}; //!< Size of Transport Block in bytes
         Time rri{0}; //!< The resource reservation interval for the semi-persistent scheduled grant
         SidelinkInfo::CastType castType{SidelinkInfo::CastType::Invalid}; //!< Cast type
+        // Cooperative HARQ (chained reservations), only with EnableChainedRes:
+        uint32_t helperId{0}; //!< leader grant: RNTI of the helper (0 = none)
+        std::map<SlGrantResource, bool>
+            usurpedByHelper; //!< leader grant: reserved slots handed to the helper
+        uint16_t relayedFromRnti{0}; //!< helper relay grant: RNTI of the original TX (0 = own)
+        uint32_t relayedSrcL2Id{0}; //!< helper relay grant: source L2 id of the original TX
+        uint8_t relayedHarqId{0};   //!< helper relay grant: HARQ id of the original TX
+        uint8_t relayedNdiBit{0};   //!< helper relay grant: SCI-2A NDI bit of the original TX
+        bool relayNackGated{false}; //!< helper relay grant: send a slot only after a NACK
+        bool relayNackSeen{false};  //!< helper relay grant: NACK heard for the last transmission
+        uint8_t relayFbMode{0};     //!< helper relay grant: 0=blind, 1=nack, 2=allAck
+        std::set<uint16_t> relayOverheardAcks; //!< Option 2: member RNTIs that sent ACK
+        uint16_t relayAwaitRnti{0}; //!< helper relay grant: RNTI of the last transmission of the TB
+        bool helperOwnRes{false};  //!< leader grant: the helper selects its own relay resources
+        uint8_t relayTxMax{0};     //!< leader grant: relay budget of the helper (own resources)
+        SfnSf helperDeadline;      //!< leader grant: packet deadline (own resources)
+        bool helperAdditive{false}; //!< leader grant: additive arm (the leader keeps all its
+                                    //!< transmissions; SCI-2A ownRes = 2)
+        uint64_t relayNackAfter{0}; //!< helper relay grant: only a NACK received after this
+                                    //!< normalized slot (the leader's last own transmission
+                                    //!< before the handed-over slot) enables the relay; 0 = any
     };
+
+    /**
+     * Cooperative HARQ relay events of a helper (trace "CoopRelay"):
+     * SCHEDULED a decoded TB was taken for relaying, SENT a relay transmission
+     * went out, NO_NACK the next relay slot was cancelled (no NACK heard for the
+     * previous transmission: Option-1 success), TOO_LATE a relay slot had
+     * already passed when the TB was decoded, NO_HARQ no free HARQ process,
+     * NO_RESOURCE (own resources) no candidate resource before the deadline.
+     * With own resources, NO_NACK is also reported when the deadline passes
+     * without a NACK.
+     */
+    enum CoopRelayEvent : uint8_t
+    {
+        COOP_RELAY_SCHEDULED = 0,
+        COOP_RELAY_SENT = 1,
+        COOP_RELAY_NO_NACK = 2,
+        COOP_RELAY_TOO_LATE = 3,
+        COOP_RELAY_NO_HARQ = 4,
+        COOP_RELAY_NO_RESOURCE = 5, //!< own resources: no candidate before the deadline
+                                    //!< (additive arm: TOO_LATE when the NACK came too
+                                    //!< close to the deadline for any selection)
+    };
+    /// event, RNTI of the original TX, its HARQ id, normalized slot
+    typedef void (*CoopRelayTracedCallback)(uint8_t, uint16_t, uint8_t, uint64_t);
 
     /**
      * \brief Structure to pass parameters to trigger the selection of candidate
@@ -125,6 +172,68 @@ class NrSlUeMac : public NrUeMac
         uint16_t m_candidateResourcesSizeAfterStep5; //!< S_A after step 5
         int m_initialRsrpThreshold;                  //!< Initial RSRP threshold
         int m_finalRsrpThreshold;                    //!< Final RSRP threshold used in algorithm
+    };
+
+    /**
+     * Sensing-peer instrumentation (SetSensingPeer, trace "SensingGap"): one
+     * report per resource selection of this UE. "ext" sensing data = SCIs in
+     * [n - T0, n - Tproc0) not transmitted by this UE or the peer.
+     */
+    struct SensingGapReport
+    {
+        SfnSf m_sfn;                //!< selection slot n
+        uint16_t m_t0{0};           //!< T0 (slots)
+        uint8_t m_tProc0{0};        //!< T_proc0 (slots)
+        uint8_t m_t1{0};            //!< T1
+        uint16_t m_t2{0};           //!< T2
+        uint16_t m_cResel{0};       //!< C_resel of the selection (0 = dynamic grant)
+        uint16_t m_pRsvpTxMs{0};    //!< reservation interval of the selection (ms)
+        uint16_t m_lSubch{0};       //!< L_subCH
+        uint32_t m_mTotal{0};       //!< M_total (step 4)
+        uint32_t m_nStep5{0};       //!< candidates entering step 6 (after step 5 / 5a)
+        uint32_t m_nFinal{0};       //!< candidates left after steps 6-7
+        int m_thrInit{0};           //!< initial RSRP threshold (dBm)
+        int m_thrFinal{0};          //!< final RSRP threshold of the selection (dBm)
+        int m_thrFinalOwn{0};       //!< final threshold this UE's own data alone reaches
+        bool m_union{false};        //!< the peer's data was also excluded (oracle IUC)
+        bool m_stepSix{false};      //!< step 6 ran (false: no sensing data nor history)
+        uint32_t m_mismatch{0};     //!< candidates whose recomputed final membership differs
+        bool m_thrMismatch{false};  //!< recomputed final threshold differs
+        uint32_t m_ownRecords{0};   //!< own "ext" sensing records
+        uint32_t m_peerRecords{0};  //!< peer "ext" sensing records
+        uint16_t m_ownRnti{0};      //!< RNTI of this UE
+        uint16_t m_peerRnti{0};     //!< RNTI of the peer
+    };
+
+    /// per-candidate flags of the trace "SensingGap" (bit masks)
+    enum SensingGapFlag : uint8_t
+    {
+        GAP_FINAL = 1,      //!< in the final candidate list
+        GAP_LACT_FIN = 2,   //!< excluded by the projections step 6 used (own data), final thr
+        GAP_L_FIN = 4,      //!< excluded by own "ext" data, final thr
+        GAP_H_FIN = 8,      //!< excluded by the peer's "ext" data, final thr
+        GAP_L_INIT = 16,    //!< excluded by own "ext" data, initial thr
+        GAP_H_INIT = 32,    //!< excluded by the peer's "ext" data, initial thr
+        GAP_H_OWNFIN = 64,  //!< excluded by the peer's "ext" data at m_thrFinalOwn
+    };
+
+    /**
+     * TracedCallback signature for SensingGap
+     * \param [in] report the selection
+     * \param [in] step5 the candidates entering step 6 (after step 5 / 5a)
+     * \param [in] flags one SensingGapFlag mask per candidate of step5, same order
+     */
+    typedef void (*SensingGapTracedCallback)(const struct SensingGapReport& report,
+                                             const std::list<SlResourceInfo>& step5,
+                                             const std::vector<uint8_t>& flags);
+
+    /// result of EvaluateSensedExclusion
+    struct SensedExclusion
+    {
+        bool excluded{false};  //!< a sensed reservation above the threshold overlaps
+        int64_t latestSlot{-1}; //!< normalized slot of the latest excluding SCI (-1: none)
+        int64_t earliestSlot{-1}; //!< normalized slot of the earliest excluding SCI (-1: none)
+        uint32_t records{0};   //!< sensing records considered
     };
 
     // SCHED API primitive for NR Sidelink
@@ -357,6 +466,112 @@ class NrSlUeMac : public NrUeMac
      * \return true if the reselection on misfit is enabled
      */
     bool GetSpsReselectOnMisfit() const;
+
+    /**
+     * \brief This UE's sensing data (SCI-1A of other UEs, last T0)
+     * \return the list of sensing data, time order
+     */
+    const std::list<SensingData>& GetSensingData() const;
+
+    /**
+     * \brief Sensing-peer instrumentation / oracle inter-UE coordination.
+     *
+     * At each resource selection of this UE, the peer's sensing data in the
+     * same window [n - T0, n - Tproc0) (without the SCIs of this UE and of the
+     * peer) is evaluated with the same step-6 logic and reported in the trace
+     * "SensingGap". With excludeForSelection, the resources it excludes are also
+     * removed from this UE's candidates (the +3 dB / X % loop then runs on the
+     * union): an oracle upper bound of TS 38.214 sec. 8.1.4C (zero delay,
+     * lossless, no signalling). Without a peer (default) nothing changes.
+     *
+     * \param peer the peer MAC (nullptr: none)
+     * \param excludeForSelection also exclude the peer's resources from the selection
+     */
+    void SetSensingPeer(Ptr<const NrSlUeMac> peer, bool excludeForSelection);
+
+    /**
+     * \brief Step 6 (TS 38.214 sec. 8.1.4) for one resource with this UE's sensing
+     *        data: would a sensed reservation above thr overlap it?
+     *
+     * Sensing data in [n - T0, n - Tproc0) from transmitters not in ignoreRntis,
+     * projected as by the selection (D2 if enabled); the resource itself only
+     * (C_resel = 1). Const: no trace, no random draw.
+     *
+     * \param n the reference slot (the window ends Tproc0 before it)
+     * \param slot the slot of the resource
+     * \param sbStart its first subchannel
+     * \param sbLen its number of subchannels
+     * \param thr RSRP threshold (dBm)
+     * \param t2 T2 of the selection the resource came from (Q of the projections)
+     * \param ignoreRntis transmitters whose SCIs are ignored
+     * \return the evaluation
+     */
+    SensedExclusion EvaluateSensedExclusion(const SfnSf& n,
+                                            const SfnSf& slot,
+                                            uint8_t sbStart,
+                                            uint8_t sbLen,
+                                            int thr,
+                                            uint16_t t2,
+                                            const std::set<uint16_t>& ignoreRntis) const;
+
+    /**
+     * \brief Whether a published grant to dstL2Id on harqId has already sent its
+     *        new transmission and still holds reserved retransmission slots, i.e.
+     *        whether a HARQ ACK for this TB would cancel retransmissions of it (and
+     *        not a later TB on the same HARQ process, as with SPS)
+     *
+     * \param dstL2Id The destination layer 2 id
+     * \param harqId The HARQ process id
+     * \return true if retransmission slots of the TB being transmitted remain
+     */
+    bool IsSlRetxPending(uint32_t dstL2Id, uint8_t harqId) const;
+
+    /**
+     * \brief Cooperative HARQ, leader side: take back the earliest remaining slot of
+     *        the TB being transmitted on harqId that was handed to the helper, so the
+     *        leader retransmits in it (e.g. after the helper's own NACK, HARQ Option 2)
+     *
+     * \param dstL2Id The destination layer 2 id
+     * \param harqId The HARQ process id
+     * \return true if a handed-over slot was taken back
+     */
+    bool ReclaimSlHelperSlot(uint32_t dstL2Id, uint8_t harqId);
+    /**
+     * \brief ReclaimSlHelperSlot restricted to handed-over slots not before notBefore
+     *        (activation deadline); the earlier ones stay with the helper
+     */
+    bool ReclaimSlHelperSlot(uint32_t dstL2Id, uint8_t harqId, const SfnSf& notBefore);
+    /**
+     * \brief The next remaining slot of the grant of harqId, and whether it is handed over
+     */
+    bool GetSlNextGrantSlot(uint32_t dstL2Id, uint8_t harqId, SfnSf& slot, bool& usurped) const;
+    /// helper: relay-gating feedback ignored because it arrived later than
+    /// CoopActivationDelay before the relay slot
+    uint64_t GetCoopFbLate() const
+    {
+        return m_coopFbLate;
+    }
+
+    /**
+     * \brief Cooperative HARQ, leader side: the earliest remaining slot of the TB being
+     *        transmitted on harqId that is handed to the helper (the slot
+     *        ReclaimSlHelperSlot would take back)
+     *
+     * \param dstL2Id The destination layer 2 id
+     * \param harqId The HARQ process id
+     * \param slot Set to that slot, if any
+     * \return true if a handed-over slot remains
+     */
+    bool GetSlNextHelperSlot(uint32_t dstL2Id, uint8_t harqId, SfnSf& slot) const;
+    /**
+     * \brief GetSlNextHelperSlot, also giving the slot's PSSCH subchannels
+     */
+    bool GetSlNextHelperSlot(uint32_t dstL2Id,
+                             uint8_t harqId,
+                             SfnSf& slot,
+                             uint16_t& sbStart,
+                             uint16_t& sbLength) const;
+
     /**
      * \brief Last slot of the published grants to dstL2Id on harqId
      *
@@ -706,6 +921,80 @@ class NrSlUeMac : public NrUeMac
         const std::list<SfnSf>& transmitHistory) const;
 
     /**
+     * \brief Projections (as step 6) of the sensing data whose slot is in
+     *        [n - t0, n - tProc0) and whose transmitter is not in ignoreRntis
+     * \param n the selection slot
+     * \param data the sensing data
+     * \param ignoreRntis transmitters to ignore
+     * \param t0 T0 (slots)
+     * \param t2 T2 of the selection
+     * \param txPool the pool
+     * \param slotPeriod the slot period
+     * \param bwpId the BWP id
+     * \param poolId the pool id
+     * \param recordSlots (out) normalized slot of each projected record
+     * \return one projection list per record
+     */
+    std::vector<std::list<ReservedResource>> ProjectSensingData(
+        const SfnSf& n,
+        const std::list<SensingData>& data,
+        const std::set<uint16_t>& ignoreRntis,
+        uint16_t t0,
+        uint16_t t2,
+        Ptr<const NrSlCommResourcePool> txPool,
+        Time slotPeriod,
+        uint8_t bwpId,
+        uint16_t poolId,
+        std::vector<int64_t>& recordSlots) const;
+
+    /**
+     * \brief Step 6 for one candidate (same test as the selection loop, without
+     *        modifying any list): excluded if a projection above thr matches one
+     *        of its nCandPeriods periods in time and overlaps it in frequency
+     * \param sfn the candidate slot
+     * \param sbStart its first subchannel
+     * \param sbLen its number of subchannels
+     * \param nCandPeriods candidate periods checked (C_resel, >= 1)
+     * \param pPrimeRsvpTx candidate period in slots
+     * \param proj projections (one list per record)
+     * \param thr RSRP threshold (dBm)
+     * \param recordSlots slot of each record (nullptr: latestSlot not computed)
+     * \param latestSlot (out, optional) latest excluding record slot
+     * \param earliestSlot (out, optional) earliest excluding record slot (-1: none)
+     * \return true if excluded
+     */
+    bool Step6Excluded(const SfnSf& sfn,
+                       uint8_t sbStart,
+                       uint8_t sbLen,
+                       uint16_t nCandPeriods,
+                       uint16_t pPrimeRsvpTx,
+                       const std::vector<std::list<ReservedResource>>& proj,
+                       int thr,
+                       const std::vector<int64_t>* recordSlots = nullptr,
+                       int64_t* latestSlot = nullptr,
+                       int64_t* earliestSlot = nullptr) const;
+
+    /**
+     * \brief Steps 6-7 relaxation loop recomputed on a candidate list (same
+     *        increments, same X % of M_total rule, same stop above 0 dBm)
+     * \param step5 the candidates entering step 6
+     * \param proj projections
+     * \param thrInit initial threshold
+     * \param mTotal M_total
+     * \param nCandPeriods candidate periods
+     * \param pPrimeRsvpTx candidate period in slots
+     * \param remaining (out) flags: 1 = remains at the final threshold
+     * \return the final threshold
+     */
+    int Step6Relax(const std::list<SlResourceInfo>& step5,
+                   const std::vector<std::list<ReservedResource>>& proj,
+                   int thrInit,
+                   uint32_t mTotal,
+                   uint16_t nCandPeriods,
+                   uint16_t pPrimeRsvpTx,
+                   std::vector<uint8_t>& remaining) const;
+
+    /**
      * \brief Check if subchannels ranges in two resources overlap
      * \param firstStart Starting subchannel index of first resource
      * \param firstLength Number of subchannels of first resource (must be greater than 0)
@@ -826,13 +1115,56 @@ class NrSlUeMac : public NrUeMac
     std::unordered_set<uint32_t>
         m_sidelinkRxDestinations; //!< vector holding Sidelink communication destinations for
                                   //!< reception
-    std::map<std::pair<uint32_t, uint8_t>, uint8_t>
-        m_slNdiBit; //!< SCI-2A NDI bit per (destination, HARQ id), toggled at each new TB
+    bool m_enableChainedRes{false}; //!< Cooperative HARQ chained reservations
     bool m_slDynExclusion{false};      //!< sensing: step 6 also for grants with P_rsvp_TX = 0
-
     bool m_slProjectAnnounced{false};  //!< sensing: project the retransmissions announced in
                                        //!< the current period (and by dynamic grants)
     bool m_spsReselectOnMisfit{false}; //!< SPS: reselect when an RLC SDU does not fit
+    bool m_helperNackTriggered{false}; //!< helper relays only after an overheard NACK
+    uint8_t m_helperFbMode{0};         //!< helper feedback mode: 0=blind, 1=nack, 2=allAck
+    uint32_t m_helperGroupSize{8};     //!< expected member ACK count for allAck (Option 2)
+    Time m_coopActivationDelay{0};     //!< feedback must arrive this long before a relay slot
+    uint64_t m_coopFbLate{0};          //!< helper: feedback ignored, too late for the relay slot
+    std::map<std::pair<uint32_t, uint8_t>, Time>
+        m_relayFbKeys; //!< (dstL2Id, HARQ id) of relayed copies awaiting PSFCH -> expiry
+    TracedCallback<uint8_t, uint16_t, uint8_t, uint64_t> m_coopRelayTrace; //!< "CoopRelay"
+
+    /// helper-picks-resource arm: a decoded TB waiting for a NACK
+    struct PendingOwnRelay
+    {
+        Ptr<PacketBurst> pb;
+        uint32_t dstL2Id{0};
+        uint16_t fromRnti{0};
+        uint8_t harqId{0};
+        uint8_t ndiBit{0}; //!< SCI-2A NDI bit of the transmitter's TB
+        uint32_t srcL2Id{0};
+        uint8_t lcid{0};
+        uint8_t castType{0};
+        NrSlSciF2aHeader::CoopInfo coop;
+        uint64_t nackUntil{0}; //!< additive: last normalized slot at which a NACK of the
+                               //!< transmitter's initial transmission can arrive
+        uint64_t nackFrom{0};  //!< first slot (since t = 0) at which a NACK of that
+                               //!< transmission can arrive: an earlier NACK on the same
+                               //!< HARQ id is for an earlier transmission (SPS keeps the
+                               //!< HARQ id across reservation periods)
+        std::set<uint16_t> overheardAcks; //!< Option 2: member RNTIs that sent ACK
+        bool nackSeen{false};             //!< Option 2: NACK received
+    };
+    std::list<PendingOwnRelay> m_pendingOwnRelays; //!< helper: TBs awaiting a NACK
+    int64_t m_absSlotOffset{0}; //!< slots since t = 0 minus the normalized SFN (last SL slot)
+    /**
+     * \brief Helper-picks-resource arm: Mode-2 selection of the relay resources
+     * (sensing-based candidates of this UE, within the packet deadline) after
+     * a NACK was overheard for the transmitter's copy; queues the relay grant.
+     */
+    void SelectOwnRelayResources(const PendingOwnRelay& p);
+    /// physical slot after which a NACK for a transmission in slot s is known
+    uint64_t NackKnownAfter(const SfnSf& s, uint8_t minTimeGapPsfch) const;
+    uint32_t m_leaderTxCount{1};    //!< kept for compatibility; see LeaderTxCount attribute
+    SfnSf m_currentSfn;             //!< last slot indicated to the MAC
+    std::set<uint64_t> m_relaySlots; //!< helper: normalized slots already scheduled for relay
+    std::map<std::pair<uint32_t, uint8_t>, uint8_t>
+        m_slNdiBit; //!< SCI-2A NDI bit per (destination, HARQ id), toggled at each new TB
     bool m_enableSensing{false};  //!< Flag to enable NR Sidelink resource selection based on
                                   //!< sensing; otherwise, use random selection
     uint8_t m_minTimeGapProcessing{
@@ -897,6 +1229,13 @@ class NrSlUeMac : public NrUeMac
         m_tracedSensingAlgorithm;
     /// every SCI-1A added to this UE's sensing data (trace "SensingDataRx")
     TracedCallback<const SensingData&> m_sensingDataRxTrace;
+    /// sensing-peer instrumentation (SetSensingPeer), one per selection
+    TracedCallback<const struct SensingGapReport&,
+                   const std::list<SlResourceInfo>&,
+                   const std::vector<uint8_t>&>
+        m_sensingGapTrace;
+    Ptr<const NrSlUeMac> m_sensingPeer;   //!< sensing peer (SetSensingPeer), none by default
+    bool m_sensingPeerExclude{false};     //!< oracle IUC: exclude the peer's resources too
 };
 
 /**

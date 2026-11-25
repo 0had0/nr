@@ -122,6 +122,17 @@ class NrSlUeMacHarq : public Object
     void DeallocateHarqProcessId(uint8_t harqId);
 
     /**
+     * \brief Cooperative HARQ: load a TB received from another UE into an
+     * allocated HARQ process so that it is relayed maxNumTx times without
+     * feedback (the process is freed after the last transmission).
+     */
+    void ForceHarqIdForRelay(uint8_t harqId,
+                             uint32_t dstL2Id,
+                             uint32_t maxNumTx,
+                             Ptr<PacketBurst> pb,
+                             uint32_t tbSize);
+
+    /**
      * Stop and restart the timer protecting the deallocation of the
      * HARQ process ID.  If the HARQ ID is not allocated, this method
      * will return false.
