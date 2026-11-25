@@ -1737,6 +1737,30 @@ NrSlUeMac::EnableSensing(bool enableSensing)
     m_enableSensing = enableSensing;
 }
 
+bool
+NrSlUeMac::GetSlGrantLastSlot(uint32_t dstL2Id, uint8_t harqId, SfnSf& last) const
+{
+    bool found = false;
+    auto itGrants = m_slGrants.find(dstL2Id);
+    if (itGrants == m_slGrants.end())
+    {
+        return false;
+    }
+    for (const auto& grant : itGrants->second)
+    {
+        if (grant.harqId == harqId && !grant.slotAllocations.empty())
+        {
+            const SfnSf s = grant.slotAllocations.rbegin()->sfn;
+            if (!found || last < s)
+            {
+                last = s;
+            }
+            found = true;
+        }
+    }
+    return found;
+}
+
 void
 NrSlUeMac::DoReceivePsfch(uint32_t sendingNodeId, SlHarqInfo harqInfo)
 {

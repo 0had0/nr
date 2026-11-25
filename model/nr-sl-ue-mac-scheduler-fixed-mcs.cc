@@ -567,6 +567,47 @@ NrSlUeMacSchedulerFixedMcs::TxResourceReselectionCheck(const SfnSf& sfn,
     return pass;
 }
 
+bool
+NrSlUeMacSchedulerFixedMcs::KeepSpsResource(const SfnSf& sfn,
+                       GrantInfo& grant,
+                       const NrSlUeMac::NrSlGrant& published)
+{
+    const double keep = GetMac()->GetSlProbResourceKeep();
+    // no draw at all with sl-ProbResourceKeep = 0 (stock random streams)
+    if (keep <= 0.0 || grant.prevSlResoReselCounter == 0 || grant.cReselCounter <= 1)
+    {
+        return false;
+    }
+    if (!(keep > m_ueSelectedUniformVariable->GetValue(0, 1)))
+    {
+        return false;
+    }
+    --grant.cReselCounter; // the period just published
+    grant.slResoReselCounter = grant.prevSlResoReselCounter;
+    const uint16_t resPeriodSlots = GetMac()->GetResvPeriodInSlots(grant.rri);
+    for (uint16_t i = 1; i <= grant.slResoReselCounter; i++)
+    {
+        for (const auto& it : published.slotAllocations)
+        {
+            auto slAlloc = it;
+            slAlloc.sfn.Add(i * resPeriodSlots);
+            slAlloc.slHasPsfch = GetMac()->SlotHasPsfch(slAlloc.sfn);
+            slAlloc.slPsschSymLength = slAlloc.slHasPsfch ? 9 : 12;
+            grant.slotAllocations.emplace(slAlloc);
+        }
+    }
+    // counted from the publication of the last period, 2 slots before its new
+    // transmission: one more period than at the selection, so the kept cycle's
+    // last retransmission is used before the HARQ process times out
+    GetMacHarq()->RenewHarqProcessIdTimer(
+        grant.harqId,
+        GetSpsGrantTimeout(sfn, grant.slResoReselCounter + 1, grant.rri));
+    NS_LOG_INFO("SPS resource to " << published.slotAllocations.begin()->dstL2Id
+                                   << " kept for " << +grant.slResoReselCounter << " periods");
+    NotifySpsKept(published.slotAllocations.begin()->dstL2Id, grant.slResoReselCounter);
+    return true;
+}
+
 uint32_t
 NrSlUeMacSchedulerFixedMcs::LogicalChannelPrioritization(
     const SfnSf& sfn,
@@ -1423,7 +1464,12 @@ NrSlUeMacSchedulerFixedMcs::CheckForGrantsToPublish(const SfnSf& sfn)
             NS_LOG_INFO("Publishing grant with " << grant.slotAllocations.size()
                                                  << " slots to destination " << currentSlot.dstL2Id
                                                  << " HARQ ID " << +grant.harqId);
-            if (itGrantVector->isDynamic || !itGrantVector->slotAllocations.size())
+            if (!itGrantVector->isDynamic && itGrantVector->slotAllocations.empty() &&
+                KeepSpsResource(sfn, *itGrantVector, grant))
+            {
+                ++itGrantVector;
+            }
+            else if (itGrantVector->isDynamic || !itGrantVector->slotAllocations.size())
             {
                 itGrantVector = itGrantInfo->second.erase(itGrantVector);
             }

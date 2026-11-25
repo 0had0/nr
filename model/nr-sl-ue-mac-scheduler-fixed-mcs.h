@@ -82,6 +82,24 @@ class NrSlUeMacSchedulerFixedMcs : public NrSlUeMacScheduler
      * \return True if the LC passes the check, false otherwise
      */
     bool TxResourceReselectionCheck(const SfnSf& sfn, uint32_t dstL2Id, uint8_t lcId);
+
+    /**
+     * \brief sl-ProbResourceKeep (TS 38.321 sec. 5.22.1.1) at the expiry of an SPS
+     *        grant's reselection counter, i.e. when its last reserved period has just
+     *        been published: with that probability the resource is kept and the same
+     *        slots are reserved for another counter's worth of periods (the counter
+     *        drawn at the selection, as in 5G-LENA's own keep branch, which is never
+     *        reached because the grant is erased with its last period)
+     *
+     * \param sfn The SfnSf
+     * \param grant The SPS grant, with no slot left
+     * \param published The grant of the period just published
+     * \return True if the resource is kept
+     */
+    bool KeepSpsResource(const SfnSf& sfn,
+                         GrantInfo& grant,
+                         const NrSlUeMac::NrSlGrant& published);
+
     /**
      * \brief Select the destinations and logical channels that need scheduling
      *

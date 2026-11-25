@@ -172,6 +172,14 @@ class NrSlUeMacScheduler : public Object
     typedef void (*GrantPublishedTracedCallback)(const struct NrSlUeMac::NrSlGrant& grant,
                                                  uint16_t psfchPeriod);
 
+    /**
+     * TracedCallback signature for an SPS resource kept at reselection-counter
+     * expiry (sl-ProbResourceKeep)
+     * \param [in] dstL2Id destination layer 2 id
+     * \param [in] counter the new reselection counter
+     */
+    typedef void (*SpsKeptTracedCallback)(uint32_t dstL2Id, uint8_t counter);
+
   protected:
     void DoDispose() override;
 
@@ -186,6 +194,11 @@ class NrSlUeMacScheduler : public Object
      * \param grant Grant information
      */
     void NotifyGrantPublished(const struct NrSlUeMac::NrSlGrant& grant) const;
+
+    /**
+     * Trigger the 'SpsResourceKept' trace source (dstL2Id, new reselection counter)
+     */
+    void NotifySpsKept(uint32_t dstL2Id, uint8_t counter) const;
 
   private:
     // Implementation of SCHED API primitives for NR Sidelink
@@ -238,6 +251,8 @@ class NrSlUeMacScheduler : public Object
 
     TracedCallback<const struct NrSlUeMac::NrSlGrant&, uint16_t>
         m_grantPublishedTrace; //!< Trace source for grant publishing
+    TracedCallback<uint32_t, uint8_t>
+        m_spsKeptTrace; //!< Trace source for SPS resources kept at counter expiry
 };
 
 } // namespace ns3
