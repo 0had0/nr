@@ -2098,6 +2098,7 @@ NrUePhy::PhyPscchPduReceived(const Ptr<Packet>& p, const SpectrumValue& psd)
                             sciF1a.GetIndexStartSbChReTx1(),
                             sciF1a.GetGapReTx2(),
                             sciF1a.GetIndexStartSbChReTx2());
+    sensingData.txRnti = tag.GetRnti();
 
     m_nrSlUePhySapUser->ReceiveSensingData(sensingData);
 
