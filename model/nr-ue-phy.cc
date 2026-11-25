@@ -2202,12 +2202,25 @@ void
 NrUePhy::SendSlExpectedTbInfo(const SfnSf& s)
 {
     NS_LOG_FUNCTION(this);
-    if (!m_slRxGrants.empty())
+    // Every announced slot due now is registered and every past one is dropped. A slot can be
+    // announced by several SCIs of the same TB (SCI 1-A on every transmission) and by several
+    // transmitters, so the list is neither unique nor in time order: checking only its head
+    // could leave a stale entry there and block every later one.
+    for (auto it = m_slRxGrants.begin(); it != m_slRxGrants.end();)
     {
-        auto expectedTbInfo = m_slRxGrants.front();
-        if (expectedTbInfo.sfn == s)
+        if (it->sfn.Normalize() < s.Normalize())
         {
-            m_slRxGrants.pop_front();
+            it = m_slRxGrants.erase(it);
+            continue;
+        }
+        if (it->sfn != s)
+        {
+            ++it;
+            continue;
+        }
+        auto expectedTbInfo = *it;
+        it = m_slRxGrants.erase(it);
+        {
             m_spectrumPhy->AddSlExpectedTb({UINT8_MAX,
                                             expectedTbInfo.tbSize,
                                             expectedTbInfo.mcs,
