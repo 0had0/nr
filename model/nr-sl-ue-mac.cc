@@ -55,6 +55,15 @@ NrSlUeMac::GetTypeId()
         TypeId("ns3::NrSlUeMac")
             .SetParent<NrUeMac>()
             .AddConstructor<NrSlUeMac>()
+            .AddAttribute("SlDynExclusion",
+                          "Sensing (TS 38.214 sec. 8.1.4 step 6) for a selection without a "
+                          "resource reservation interval (dynamic grant): check the candidate "
+                          "itself against the sensed reservations (C_resel = 1). False: stock "
+                          "behaviour, the step-6 loop runs C_resel = 0 times and no candidate "
+                          "of a dynamic grant is excluded by sensing",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&NrSlUeMac::m_slDynExclusion),
+                          MakeBooleanChecker())
             .AddAttribute("EnableSensing",
                           "Flag to enable NR Sidelink resource selection based on sensing; "
                           "otherwise, use random selection",
@@ -560,7 +569,11 @@ NrSlUeMac::GetCandidateResourcesPrivate(const SfnSf& sfn,
             std::list<SlResourceInfo> resourceInfoList;
             uint16_t pPrimeRsvpTx =
                 txPool->GetResvPeriodInSlots(bwpId, poolId, params.m_pRsvpTx, slotPeriod);
-            for (uint16_t i = 0; i < params.m_cResel; i++)
+            // TS 38.214 sec. 8.1.4: C_resel = 1 when no reservation interval is
+            // provided; stock 5G-LENA passes 0 for a dynamic grant (no exclusion)
+            const uint16_t nCandPeriods =
+                (m_slDynExclusion && params.m_cResel == 0) ? 1 : params.m_cResel;
+            for (uint16_t i = 0; i < nCandPeriods; i++)
             {
                 auto slResourceInfo = *itCandidate;
                 slResourceInfo.sfn.Add(i * pPrimeRsvpTx);
