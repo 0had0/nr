@@ -172,6 +172,32 @@ class NrSlUeMacScheduler : public Object
     typedef void (*GrantPublishedTracedCallback)(const struct NrSlUeMac::NrSlGrant& grant,
                                                  uint16_t psfchPeriod);
 
+    /**
+     * TracedCallback signature for an RLC SDU that the selected SPS grant does not
+     * accommodate (SpsReselectOnMisfit of NrSlUeMac)
+     * \param [in] dstL2Id destination layer 2 id
+     * \param [in] lcId logical channel id
+     * \param [in] bufferSize LC buffer size (bytes)
+     * \param [in] allocated bytes the grant allocates to the LC
+     * \param [in] capacity bytes the grant's TB carries at the configured MCS
+     * \param [in] reselected true if a resource reselection was triggered (the data
+     *             exceeds the TB), false if the grant's allocation was enlarged
+     */
+    /**
+     * TracedCallback signature for an SPS resource kept at reselection-counter
+     * expiry (sl-ProbResourceKeep)
+     * \param [in] dstL2Id destination layer 2 id
+     * \param [in] counter the new reselection counter
+     */
+    typedef void (*SpsKeptTracedCallback)(uint32_t dstL2Id, uint8_t counter);
+
+    typedef void (*SpsMisfitTracedCallback)(uint32_t dstL2Id,
+                                            uint8_t lcId,
+                                            uint32_t bufferSize,
+                                            uint32_t allocated,
+                                            uint32_t capacity,
+                                            bool reselected);
+
   protected:
     void DoDispose() override;
 
@@ -186,6 +212,21 @@ class NrSlUeMacScheduler : public Object
      * \param grant Grant information
      */
     void NotifyGrantPublished(const struct NrSlUeMac::NrSlGrant& grant) const;
+
+    /**
+     * Trigger the 'SpsMisfit' trace source (see SpsMisfitTracedCallback)
+     */
+    /**
+     * Trigger the 'SpsResourceKept' trace source (dstL2Id, new reselection counter)
+     */
+    void NotifySpsKept(uint32_t dstL2Id, uint8_t counter) const;
+
+    void NotifySpsMisfit(uint32_t dstL2Id,
+                         uint8_t lcId,
+                         uint32_t bufferSize,
+                         uint32_t allocated,
+                         uint32_t capacity,
+                         bool reselected) const;
 
   private:
     // Implementation of SCHED API primitives for NR Sidelink
@@ -238,6 +279,12 @@ class NrSlUeMacScheduler : public Object
 
     TracedCallback<const struct NrSlUeMac::NrSlGrant&, uint16_t>
         m_grantPublishedTrace; //!< Trace source for grant publishing
+
+    TracedCallback<uint32_t, uint8_t, uint32_t, uint32_t, uint32_t, bool>
+        m_spsMisfitTrace; //!< Trace source for SPS grants that do not fit an RLC SDU
+
+    TracedCallback<uint32_t, uint8_t>
+        m_spsKeptTrace; //!< Trace source for SPS resources kept at counter expiry
 };
 
 } // namespace ns3

@@ -693,6 +693,7 @@ struct SlHarqInfo : public HarqInfo
 {
     uint16_t m_txRnti{55};     //!< Transmitter RNTI
     uint16_t m_dstL2Id{65535}; //!< DST L2 ID
+    uint32_t m_helperRnti{0};  //!< cooperative HARQ: helper named in the TB's SCI-2A (0 = none)
 
     /**
      * \brief Status of the SL Harq: ACKed or NACKed

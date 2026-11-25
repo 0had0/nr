@@ -431,6 +431,58 @@ struct SlRxDataPacketTraceParams : public RxPacketTraceParams
 
 /**
  * \ingroup utils
+ * \brief One event on a receiver's sidelink HARQ soft buffer (trace SlHarqCombine of
+ *        NrSpectrumPhy, validation of cooperative HARQ combining; no sink, no cost)
+ */
+struct SlHarqCombineTraceParams
+{
+    /// what happened to the HARQ process (harqRnti, harqId) of the receiver
+    enum Event : uint8_t
+    {
+        DECODE = 0,            //!< data decoding attempt; m_histBefore = earlier copies combined
+        REMOVE_PREV_NDI = 1,   //!< NDI = 1: the "already decoded" mark of the process is cleared
+        SKIP_PREV_DECODED = 2, //!< copy of a TB already decoded: not dispatched, not combined
+        RESET_NO_COMBINE = 3,  //!< buffer cleared before decoding (SlSoftCombining false, or a
+                               //!< blind copy with SlBlindSoftCombining false)
+        RESET_NDI = 4,         //!< NDI = 1 with a non-empty buffer: cleared (new TB)
+        RESET_DECODED = 5,     //!< buffer cleared after a successful decoding
+        SCI2_FAIL = 6,         //!< SCI-2A not decoded: nothing stored
+        SCI_DROPPED = 7,       //!< test hook SlTestDropSci: this PSSCH reception ignored, both
+                               //!< SCI stages unread (no HARQ id / NDI / RV / L2 ids set)
+        ACK_PREV_DECODED = 8,  //!< copy of a TB already decoded ACKed (SlAckPrevDecodedTb)
+        NDI_TOGGLE = 9,        //!< NDI bit toggled while the "new data" flag is 0 (copy 1 of
+                               //!< the TB missed): "decoded" mark and buffer flushed
+    };
+
+    double m_timeMs{0.0};          //!< time (ms)
+    uint16_t m_rxRnti{0};          //!< receiver RNTI
+    uint16_t m_txRnti{0};          //!< transmitter of this copy
+    uint16_t m_harqRnti{0};        //!< owner of the HARQ process (relayedFromRnti for a relayed copy)
+    uint16_t m_relayedFromRnti{0}; //!< SCI-2A coop.relayedFromRnti (0: own TB of the transmitter)
+    uint8_t m_harqId{0};           //!< SCI-2A HARQ process id
+    uint8_t m_ndi{0};              //!< SCI-2A NDI
+    uint8_t m_rv{0};               //!< SCI-2A RV
+    uint8_t m_harqFb{0};           //!< SCI-2A HARQ feedback indicator
+    uint8_t m_mcs{0};              //!< MCS of the PSSCH
+    uint32_t m_srcL2Id{0};         //!< SCI-2A source L2 id
+    uint32_t m_tbSize{0};          //!< TB size (bytes)
+    uint32_t m_numRb{0};           //!< allocated RBs
+    uint8_t m_event{DECODE};       //!< Event
+    uint32_t m_histBefore{0};      //!< copies in the buffer before this event
+    double m_sinrAvg{0.0};         //!< mean SINR of this copy (linear)
+    double m_sinrEff{0.0};         //!< DECODE: effective SINR the error model used (linear)
+    double m_tbler{0.0};           //!< DECODE: TBLER the error model returned
+    bool m_corrupt{false};         //!< DECODE: outcome
+
+    /**
+     * \brief TracedCallback signature.
+     * \param [in] params Value of the SlHarqCombineTraceParams
+     */
+    typedef void (*TracedCallback)(const SlHarqCombineTraceParams& params);
+};
+
+/**
+ * \ingroup utils
  * \brief The SlCtrlRxPacketTraceParams struct
  */
 struct SlRxCtrlPacketTraceParams : public RxPacketTraceParams
@@ -523,6 +575,8 @@ struct SensingData
     uint8_t sbChStartReTx2{
         std::numeric_limits<uint8_t>::max()}; //!< The index of the starting sub-channel allocated
                                               //!< to second retransmission
+    uint16_t txRnti{0}; //!< RNTI of the transmitting UE (simulator bookkeeping, not in the
+                        //!< SCI; used only by NrSlUeMac::SetSensingPeer instrumentation)
 };
 
 /**

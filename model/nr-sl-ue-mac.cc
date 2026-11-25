@@ -55,6 +55,76 @@ NrSlUeMac::GetTypeId()
         TypeId("ns3::NrSlUeMac")
             .SetParent<NrUeMac>()
             .AddConstructor<NrSlUeMac>()
+            .AddAttribute("EnableChainedRes",
+                          "Cooperative HARQ chained reservations: a leader hands the reserved "
+                          "retransmission slots marked by its scheduler (NrSlGrant::"
+                          "usurpedByHelper) to the helper named in its SCI-2A, and a UE named "
+                          "as helper relays a decoded TB in those slots",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&NrSlUeMac::m_enableChainedRes),
+                          MakeBooleanChecker())
+            .AddAttribute("HelperNackTriggered",
+                          "Cooperative HARQ, helper side: relay a decoded TB in a handed-over "
+                          "slot only if a NACK was overheard on the PSFCH for the previous "
+                          "transmission of that TB (the transmitter's, then the helper's own), "
+                          "as for HARQ Option 1; otherwise the remaining relay slots are "
+                          "cancelled. False: relay blindly in every handed-over slot",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&NrSlUeMac::m_helperNackTriggered),
+                          MakeBooleanChecker())
+            .AddAttribute("HelperFeedbackMode",
+                          "Cooperative HARQ helper feedback gating mode: "
+                          "0=blind, 1=nack (Option 1: relay on NACK), 2=allAck (Option 2: relay unless all ACK)",
+                          UintegerValue(0),
+                          MakeUintegerAccessor(&NrSlUeMac::m_helperFbMode),
+                          MakeUintegerChecker<uint8_t>(0, 2))
+            .AddAttribute("HelperGroupSize",
+                          "Expected member ACK count for HelperFeedbackMode=2 (allAck)",
+                          UintegerValue(8),
+                          MakeUintegerAccessor(&NrSlUeMac::m_helperGroupSize),
+                          MakeUintegerChecker<uint32_t>())
+            .AddAttribute("CoopActivationDelay",
+                          "Cooperative HARQ: time needed to act on a decision (activate or "
+                          "withhold a prepared transmission) before the slot starts. The helper "
+                          "ignores relay-gating feedback that arrives later than this before its "
+                          "next relay slot. 0: instantaneous (default)",
+                          TimeValue(Seconds(0)),
+                          MakeTimeAccessor(&NrSlUeMac::m_coopActivationDelay),
+                          MakeTimeChecker())
+            .AddAttribute("LeaderTxCount",
+                          "Unused by the MAC (kept so existing scripts keep working): which "
+                          "slots the leader keeps is decided by its scheduler",
+                          UintegerValue(1),
+                          MakeUintegerAccessor(&NrSlUeMac::m_leaderTxCount),
+                          MakeUintegerChecker<uint32_t>())
+            .AddAttribute("SlDynExclusion",
+                          "Sensing (TS 38.214 sec. 8.1.4 step 6) for a selection without a "
+                          "resource reservation interval (dynamic grant): check the candidate "
+                          "itself against the sensed reservations (C_resel = 1). False: stock "
+                          "behaviour, the step-6 loop runs C_resel = 0 times and no candidate "
+                          "of a dynamic grant is excluded by sensing",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&NrSlUeMac::m_slDynExclusion),
+                          MakeBooleanChecker())
+            .AddAttribute("SlProjectAnnounced",
+                          "Sensing (TS 38.214 sec. 8.1.4 step 6): also project the "
+                          "retransmission resources an SCI-1A announces in its own period "
+                          "(TRIV gaps from the sensed slot), including those of SCIs without "
+                          "a reservation period (dynamic grants). False: stock behaviour, "
+                          "announced retransmissions are projected only into the next "
+                          "reservation periods, never for a period of 0",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&NrSlUeMac::m_slProjectAnnounced),
+                          MakeBooleanChecker())
+            .AddAttribute("SpsReselectOnMisfit",
+                          "SPS (TS 38.321 sec. 5.22.1.1): when an RLC SDU cannot be "
+                          "accommodated by the selected SPS grant at the configured MCS, the "
+                          "scheduler triggers a resource reselection sized for the new data "
+                          "instead of segmenting the SDU across reservation periods. False: "
+                          "stock behaviour (the grant keeps the size of its first SDU)",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&NrSlUeMac::m_spsReselectOnMisfit),
+                          MakeBooleanChecker())
             .AddAttribute("EnableSensing",
                           "Flag to enable NR Sidelink resource selection based on sensing; "
                           "otherwise, use random selection",
@@ -120,6 +190,10 @@ NrSlUeMac::GetTypeId()
                             "Information regarding NR SL PSCCH UE scheduling",
                             MakeTraceSourceAccessor(&NrSlUeMac::m_slPscchScheduling),
                             "ns3::SlPscchUeMacStatParameters::TracedCallback")
+            .AddTraceSource("CoopRelay",
+                            "Cooperative HARQ relay events of a helper (see CoopRelayEvent)",
+                            MakeTraceSourceAccessor(&NrSlUeMac::m_coopRelayTrace),
+                            "ns3::NrSlUeMac::CoopRelayTracedCallback")
             .AddTraceSource("SlPsschScheduling",
                             "Information regarding NR SL PSSCH UE scheduling",
                             MakeTraceSourceAccessor(&NrSlUeMac::m_slPsschScheduling),
@@ -131,7 +205,16 @@ NrSlUeMac::GetTypeId()
             .AddTraceSource("SensingAlgorithm",
                             "Candidates selected by the mode 2 sensing algorithm",
                             MakeTraceSourceAccessor(&NrSlUeMac::m_tracedSensingAlgorithm),
-                            "ns3::NrSlUeMac::SensingAlgorithmTracedCallback");
+                            "ns3::NrSlUeMac::SensingAlgorithmTracedCallback")
+            .AddTraceSource("SensingDataRx",
+                            "An SCI-1A added to the sensing data of this UE",
+                            MakeTraceSourceAccessor(&NrSlUeMac::m_sensingDataRxTrace),
+                            "ns3::NrSlUeMac::SensingDataRxTracedCallback")
+            .AddTraceSource("SensingGap",
+                            "Sensing-peer instrumentation of each resource selection "
+                            "(SetSensingPeer): step-6 exclusions of this UE and of the peer",
+                            MakeTraceSourceAccessor(&NrSlUeMac::m_sensingGapTrace),
+                            "ns3::NrSlUeMac::SensingGapTracedCallback");
     return tid;
 }
 
@@ -447,10 +530,125 @@ NrSlUeMac::GetCandidateResourcesPrivate(const SfnSf& sfn,
         return candidateResources;
     }
 
+    // Sensing peer (SetSensingPeer; none by default): the peer's sensing data in
+    // the same window, without the SCIs of this UE and of the peer ("ext")
+    const bool peerOn = (m_sensingPeer != nullptr);
+    const bool peerUnion = peerOn && m_sensingPeerExclude;
+    std::set<uint16_t> extIgnore;
+    std::vector<std::list<ReservedResource>> peerProj;
+    std::vector<int64_t> peerSlots;
+    if (peerOn)
+    {
+        extIgnore = {GetRnti(), m_sensingPeer->GetRnti()};
+        peerProj = ProjectSensingData(sfn,
+                                      m_sensingPeer->GetSensingData(),
+                                      extIgnore,
+                                      report.m_t0,
+                                      t2,
+                                      txPool,
+                                      slotPeriod,
+                                      bwpId,
+                                      poolId,
+                                      peerSlots);
+    }
+    // trace "SensingGap": per candidate entering step 6, which exclusions apply
+    auto emitGap = [&](const std::list<SlResourceInfo>& step5,
+                       const std::list<SlResourceInfo>& finalList,
+                       const std::vector<std::list<ReservedResource>>& usedProj,
+                       const std::vector<std::list<ReservedResource>>& ownUsedProj,
+                       int thrInit,
+                       int thrFinal,
+                       bool stepSix) {
+        SensingGapReport gr;
+        gr.m_sfn = sfn;
+        gr.m_t0 = report.m_t0;
+        gr.m_tProc0 = m_tproc0;
+        gr.m_t1 = m_t1;
+        gr.m_t2 = t2;
+        gr.m_cResel = params.m_cResel;
+        gr.m_pRsvpTxMs = static_cast<uint16_t>(params.m_pRsvpTx.GetMilliSeconds());
+        gr.m_lSubch = params.m_lSubch;
+        gr.m_mTotal = mTotal;
+        gr.m_nStep5 = static_cast<uint32_t>(step5.size());
+        gr.m_nFinal = static_cast<uint32_t>(finalList.size());
+        gr.m_thrInit = thrInit;
+        gr.m_thrFinal = thrFinal;
+        gr.m_union = peerUnion;
+        gr.m_stepSix = stepSix;
+        gr.m_ownRnti = GetRnti();
+        gr.m_peerRnti = m_sensingPeer->GetRnti();
+        std::vector<int64_t> ownSlots;
+        const auto ownExt = ProjectSensingData(sfn,
+                                               sensingData,
+                                               extIgnore,
+                                               report.m_t0,
+                                               t2,
+                                               txPool,
+                                               slotPeriod,
+                                               bwpId,
+                                               poolId,
+                                               ownSlots);
+        gr.m_ownRecords = static_cast<uint32_t>(ownExt.size());
+        gr.m_peerRecords = static_cast<uint32_t>(peerProj.size());
+        const uint16_t pPrime =
+            txPool->GetResvPeriodInSlots(bwpId, poolId, params.m_pRsvpTx, slotPeriod);
+        const uint16_t nCandPeriods =
+            (m_slDynExclusion && params.m_cResel == 0) ? 1 : params.m_cResel;
+        std::vector<uint8_t> remOwn;
+        std::vector<uint8_t> remUsed;
+        gr.m_thrFinalOwn = thrFinal;
+        if (stepSix)
+        {
+            gr.m_thrFinalOwn =
+                Step6Relax(step5, ownUsedProj, thrInit, mTotal, nCandPeriods, pPrime, remOwn);
+            const int thrUsed =
+                Step6Relax(step5, usedProj, thrInit, mTotal, nCandPeriods, pPrime, remUsed);
+            gr.m_thrMismatch = (thrUsed != thrFinal);
+        }
+        std::set<std::pair<uint64_t, uint16_t>> inFinal;
+        for (const auto& c : finalList)
+        {
+            inFinal.insert({c.sfn.Normalize(), c.slSubchannelStart});
+        }
+        std::vector<uint8_t> flags;
+        flags.reserve(step5.size());
+        size_t i = 0;
+        for (const auto& c : step5)
+        {
+            uint8_t f = 0;
+            const bool fin = inFinal.count({c.sfn.Normalize(), c.slSubchannelStart}) > 0;
+            const auto st = static_cast<uint8_t>(c.slSubchannelStart);
+            const auto ln = static_cast<uint8_t>(c.slSubchannelLength);
+            auto excl = [&](const std::vector<std::list<ReservedResource>>& pr, int thr) {
+                return Step6Excluded(c.sfn, st, ln, nCandPeriods, pPrime, pr, thr);
+            };
+            f |= fin ? GAP_FINAL : 0;
+            if (stepSix)
+            {
+                f |= excl(ownUsedProj, thrFinal) ? GAP_LACT_FIN : 0;
+                gr.m_mismatch += (remUsed[i] != 0) != fin ? 1 : 0;
+            }
+            f |= excl(ownExt, thrFinal) ? GAP_L_FIN : 0;
+            f |= excl(peerProj, thrFinal) ? GAP_H_FIN : 0;
+            f |= excl(ownExt, thrInit) ? GAP_L_INIT : 0;
+            f |= excl(peerProj, thrInit) ? GAP_H_INIT : 0;
+            f |= excl(peerProj, gr.m_thrFinalOwn) ? GAP_H_OWNFIN : 0;
+            flags.push_back(f);
+            ++i;
+        }
+        m_sensingGapTrace(gr, step5, flags);
+    };
+
     // This is an optimization to skip further null processing below
-    if (m_enableSensing && sensingData.empty() && transmitHistory.empty())
+    // (not with the oracle IUC when the peer has sensed something)
+    if (m_enableSensing && sensingData.empty() && transmitHistory.empty() &&
+        !(peerUnion && !peerProj.empty()))
     {
         NS_LOG_DEBUG("No sensing or data found: Total slots selected " << mTotal);
+        if (peerOn)
+        {
+            emitGap(candidateResources, candidateResources, {}, {}, m_thresRsrp, m_thresRsrp, false);
+        }
         m_tracedSensingAlgorithm(report, candidateResources, sensingData, transmitHistory);
         return candidateResources;
     }
@@ -536,6 +734,16 @@ NrSlUeMac::GetCandidateResourcesPrivate(const SfnSf& sfn,
         sensingDataProjections.push_back(resourceList);
     }
 
+    // oracle IUC (SetSensingPeer with exclusion): the peer's reservations are
+    // excluded too, the loop below relaxes the threshold for the union
+    const size_t nOwnProj = sensingDataProjections.size();
+    if (peerUnion)
+    {
+        sensingDataProjections.insert(sensingDataProjections.end(),
+                                      peerProj.begin(),
+                                      peerProj.end());
+    }
+
     NS_LOG_DEBUG("Size of sensingDataProjections outer vector: " << sensingDataProjections.size());
 
     int rsrpThreshold = m_thresRsrp;
@@ -560,7 +768,11 @@ NrSlUeMac::GetCandidateResourcesPrivate(const SfnSf& sfn,
             std::list<SlResourceInfo> resourceInfoList;
             uint16_t pPrimeRsvpTx =
                 txPool->GetResvPeriodInSlots(bwpId, poolId, params.m_pRsvpTx, slotPeriod);
-            for (uint16_t i = 0; i < params.m_cResel; i++)
+            // TS 38.214 sec. 8.1.4: C_resel = 1 when no reservation interval is
+            // provided; stock 5G-LENA passes 0 for a dynamic grant (no exclusion)
+            const uint16_t nCandPeriods =
+                (m_slDynExclusion && params.m_cResel == 0) ? 1 : params.m_cResel;
+            for (uint16_t i = 0; i < nCandPeriods; i++)
             {
                 auto slResourceInfo = *itCandidate;
                 slResourceInfo.sfn.Add(i * pPrimeRsvpTx);
@@ -614,6 +826,10 @@ NrSlUeMac::GetCandidateResourcesPrivate(const SfnSf& sfn,
                             }
                         }
                     }
+                    if (erased)
+                    {
+                        break; // break for itFutureCand
+                    }
                 }
                 if (erased)
                 {
@@ -647,6 +863,19 @@ NrSlUeMac::GetCandidateResourcesPrivate(const SfnSf& sfn,
                  << " slots");
 
     report.m_finalRsrpThreshold = (rsrpThreshold - 3); // undo the last increment
+    if (peerOn)
+    {
+        const std::vector<std::list<ReservedResource>> ownUsed(
+            sensingDataProjections.begin(),
+            sensingDataProjections.begin() + nOwnProj);
+        emitGap(candidateResourcesAfterStep5,
+                remainingCandidates,
+                sensingDataProjections,
+                ownUsed,
+                report.m_initialRsrpThreshold,
+                report.m_finalRsrpThreshold,
+                true);
+    }
     m_tracedSensingAlgorithm(report, remainingCandidates, updatedSensingData, updatedHistory);
     return remainingCandidates;
 }
@@ -783,6 +1012,35 @@ NrSlUeMac::ExcludeReservedResources(SensingData sensedData,
     }
     uint16_t pPrimeRsvpRx = resvPeriodSlots;
 
+    if (m_slProjectAnnounced)
+    {
+        // retransmissions announced by the sensed SCI-1A in its own period (the
+        // TRIV gaps count from the sensed slot); for a sensed SCI without a
+        // reservation period (dynamic grant) these are its only reservations
+        if (sensedData.gapReTx1 != std::numeric_limits<uint8_t>::max())
+        {
+            ReservedResource reTx1Slot(sensedData.sfn,
+                                       sensedData.rsvp,
+                                       sensedData.sbChLength,
+                                       sensedData.sbChStartReTx1,
+                                       sensedData.prio,
+                                       sensedData.slRsrp);
+            reTx1Slot.sfn = sensedData.sfn.GetFutureSfnSf(sensedData.gapReTx1);
+            resourceList.emplace_back(reTx1Slot);
+        }
+        if (sensedData.gapReTx2 != std::numeric_limits<uint8_t>::max())
+        {
+            ReservedResource reTx2Slot(sensedData.sfn,
+                                       sensedData.rsvp,
+                                       sensedData.sbChLength,
+                                       sensedData.sbChStartReTx2,
+                                       sensedData.prio,
+                                       sensedData.slRsrp);
+            reTx2Slot.sfn = sensedData.sfn.GetFutureSfnSf(sensedData.gapReTx2);
+            resourceList.emplace_back(reTx2Slot);
+        }
+    }
+
     for (uint16_t i = 1; i <= q; i++)
     {
         ReservedResource resource(sensedData.sfn,
@@ -881,6 +1139,141 @@ NrSlUeMac::OverlappedResource(uint8_t firstStart,
             std::min(firstStart + firstLength, secondStart + secondLength));
 }
 
+std::vector<std::list<ReservedResource>>
+NrSlUeMac::ProjectSensingData(const SfnSf& n,
+                              const std::list<SensingData>& data,
+                              const std::set<uint16_t>& ignoreRntis,
+                              uint16_t t0,
+                              uint16_t t2,
+                              Ptr<const NrSlCommResourcePool> txPool,
+                              Time slotPeriod,
+                              uint8_t bwpId,
+                              uint16_t poolId,
+                              std::vector<int64_t>& recordSlots) const
+{
+    std::vector<std::list<ReservedResource>> out;
+    recordSlots.clear();
+    const uint64_t nNorm = n.Normalize();
+    for (const auto& d : data)
+    {
+        const uint64_t s = d.sfn.Normalize();
+        // window [n - T0, n - Tproc0), as the selection's trimmed copy
+        if (s >= nNorm || nNorm - s <= GetTproc0() || nNorm - s > t0 ||
+            ignoreRntis.count(d.txRnti))
+        {
+            continue;
+        }
+        uint16_t resvPeriodSlots =
+            txPool->GetResvPeriodInSlots(bwpId, poolId, MilliSeconds(d.rsvp), slotPeriod);
+        out.push_back(ExcludeReservedResources(d, slotPeriod, resvPeriodSlots, m_t1, t2));
+        recordSlots.push_back(static_cast<int64_t>(s));
+    }
+    return out;
+}
+
+bool
+NrSlUeMac::Step6Excluded(const SfnSf& sfn,
+                         uint8_t sbStart,
+                         uint8_t sbLen,
+                         uint16_t nCandPeriods,
+                         uint16_t pPrimeRsvpTx,
+                         const std::vector<std::list<ReservedResource>>& proj,
+                         int thr,
+                         const std::vector<int64_t>* recordSlots,
+                         int64_t* latestSlot,
+                         int64_t* earliestSlot) const
+{
+    // same test as the selection loop: a projection matches the candidate's
+    // period j (slot y + j P'_rsvp_TX, j < nCandPeriods) in time, is above the
+    // threshold and overlaps it in frequency (SfnSf::Add is linear in Normalize())
+    if (nCandPeriods == 0)
+    {
+        return false;
+    }
+    const int64_t y = static_cast<int64_t>(sfn.Normalize());
+    bool excluded = false;
+    for (size_t r = 0; r < proj.size(); ++r)
+    {
+        bool hit = false;
+        for (const auto& p : proj[r])
+        {
+            const int64_t d = static_cast<int64_t>(p.sfn.Normalize()) - y;
+            if (d < 0)
+            {
+                continue;
+            }
+            const bool inTime = (pPrimeRsvpTx == 0 || nCandPeriods == 1)
+                                    ? d == 0
+                                    : (d % pPrimeRsvpTx == 0 && d / pPrimeRsvpTx < nCandPeriods);
+            if (inTime && p.slRsrp > thr &&
+                OverlappedResource(p.sbChStart, p.sbChLength, sbStart, sbLen))
+            {
+                hit = true;
+                break;
+            }
+        }
+        if (hit)
+        {
+            excluded = true;
+            if (recordSlots == nullptr || latestSlot == nullptr)
+            {
+                return true;
+            }
+            *latestSlot = std::max(*latestSlot, (*recordSlots)[r]);
+            if (earliestSlot != nullptr && (*earliestSlot < 0 || (*recordSlots)[r] < *earliestSlot))
+            {
+                *earliestSlot = (*recordSlots)[r];
+            }
+        }
+    }
+    return excluded;
+}
+
+int
+NrSlUeMac::Step6Relax(const std::list<SlResourceInfo>& step5,
+                      const std::vector<std::list<ReservedResource>>& proj,
+                      int thrInit,
+                      uint32_t mTotal,
+                      uint16_t nCandPeriods,
+                      uint16_t pPrimeRsvpTx,
+                      std::vector<uint8_t>& remaining) const
+{
+    // the do-while of steps 6-7 in GetCandidateResourcesPrivate
+    int thr = thrInit;
+    while (true)
+    {
+        remaining.assign(step5.size(), 0);
+        uint32_t left = 0;
+        size_t i = 0;
+        for (const auto& c : step5)
+        {
+            if (!Step6Excluded(c.sfn,
+                               c.slSubchannelStart,
+                               c.slSubchannelLength,
+                               nCandPeriods,
+                               pPrimeRsvpTx,
+                               proj,
+                               thr))
+            {
+                remaining[i] = 1;
+                ++left;
+            }
+            ++i;
+        }
+        thr += 3;
+        if (thr > 0)
+        {
+            remaining.assign(step5.size(), 0);
+            break;
+        }
+        if (left >= (GetResourcePercentage() / 100.0) * mTotal)
+        {
+            break;
+        }
+    }
+    return thr - 3;
+}
+
 void
 NrSlUeMac::DoReceiveSensingData(SensingData sensingData)
 {
@@ -890,6 +1283,7 @@ NrSlUeMac::DoReceiveSensingData(SensingData sensingData)
     {
         // oldest data will be at the front of the queue
         m_sensingData.push_back(sensingData);
+        m_sensingDataRxTrace(sensingData);
     }
 }
 
@@ -931,6 +1325,203 @@ NrSlUeMac::DoReceivePsschPhyPdu(Ptr<PacketBurst> pdu)
         // if we hit this assert that means SCI 1 reception code in NrUePhy
         // is not filtering the SCI 1 correctly.
         NS_FATAL_ERROR("Received PHY PDU with unknown destination " << sciF2a.GetDstId());
+    }
+
+    // Cooperative HARQ: this UE is the helper named by the TB's transmitter.
+    // Relay the decoded TB, unchanged (same TB size, MCS, subchannels), in the
+    // reserved slots the transmitter handed over; receivers soft-combine it
+    // with the transmitter's HARQ process (SCI-2A relayedFromRnti).
+    const NrSlSciF2aHeader::CoopInfo& coop = sciF2a.GetCoopInfo();
+    // additive arm (ownRes = 2): the transmitter keeps its own HARQ
+    // retransmissions; the helper may add copies only after a NACK on the
+    // transmitter's initial transmission (rv 0), so it takes the TB from that
+    // transmission only and listens to the PSFCH of that transmission only
+    const bool additiveSkip = coop.ownRes == 2 && sciF2a.GetRv() != 0;
+    if (m_enableChainedRes && coop.helperId != 0 && coop.helperId == GetRnti() &&
+        coop.relayedFromRnti == 0 && coop.ownRes && !additiveSkip)
+    {
+        // helper-picks-resource arm: keep the decoded TB; the relay resources are
+        // selected when a NACK for the transmitter's copy is overheard
+        LteRadioBearerTag txTag;
+        dataPkts.front()->PeekPacketTag(txTag);
+        PendingOwnRelay p;
+        p.pb = CreateObject<PacketBurst>();
+        for (const auto& pkt : dataPkts)
+        {
+            Ptr<Packet> copy = pkt->Copy();
+            LteRadioBearerTag t;
+            if (copy->PeekPacketTag(t))
+            {
+                t.SetRnti(GetRnti()); // the PHY matches PSSCH and SCI-1A by RNTI
+                copy->ReplacePacketTag(t);
+            }
+            p.pb->AddPacket(copy);
+        }
+        p.dstL2Id = sciF2a.GetDstId();
+        p.fromRnti = txTag.GetRnti();
+        p.harqId = sciF2a.GetHarqId();
+        p.ndiBit = sciF2a.GetNdiBit();
+        p.srcL2Id = sciF2a.GetSrcId();
+        p.lcid = txTag.GetLcid();
+        p.castType = sciF2a.GetCastType();
+        p.coop = coop;
+        const uint8_t fbMode = (m_helperFbMode > 0) ? m_helperFbMode : (m_helperNackTriggered ? 1 : 0);
+        if (fbMode == 0)
+        {
+            // Blind own grant: trigger resource selection immediately upon decoding
+            SelectOwnRelayResources(p);
+        }
+        else
+        {
+            if (coop.ownRes == 2 || fbMode == 2)
+            {
+                // NACKs/ACKs of this transmission are known by NackKnownAfter()
+                p.nackUntil =
+                    NackKnownAfter(m_currentSfn, m_slTxPool->GetMinTimeGapPsfch(GetBwpId(), m_poolId)) +
+                    1;
+            }
+            // first slot at which a NACK of this PSSCH can arrive (its PSFCH
+            // occasion + 1), in slots since t = 0
+            {
+                const uint8_t gap = m_slTxPool->GetMinTimeGapPsfch(GetBwpId(), m_poolId);
+                const int64_t slotNs = m_nrSlUePhySapProvider->GetSlotPeriod().GetNanoSeconds();
+                const int64_t nowNs = Simulator::Now().GetNanoSeconds();
+                const int64_t psschAbs = nowNs / slotNs - ((nowNs % slotNs < slotNs / 2) ? 1 : 0);
+                const int64_t cur = static_cast<int64_t>(m_currentSfn.Normalize());
+                const int64_t psschNorm = psschAbs - m_absSlotOffset;
+                const int64_t k0 = std::max<int64_t>(0, psschNorm + gap - cur);
+                p.nackFrom = static_cast<uint64_t>(
+                    static_cast<int64_t>(NackKnownAfter(m_currentSfn, static_cast<uint8_t>(k0))) +
+                    m_absSlotOffset);
+            }
+            m_pendingOwnRelays.remove_if([&p](const PendingOwnRelay& q) {
+                return q.dstL2Id == p.dstL2Id && q.fromRnti == p.fromRnti && q.harqId == p.harqId;
+            });
+            m_pendingOwnRelays.push_back(p);
+        }
+    }
+    else if (m_enableChainedRes && coop.helperId != 0 && coop.helperId == GetRnti() &&
+             coop.relayedFromRnti == 0 && !coop.ownRes)
+    {
+        LteRadioBearerTag txTag;
+        dataPkts.front()->PeekPacketTag(txTag); // original transmitter's RNTI and LCID
+        const uint64_t now = m_currentSfn.Normalize();
+        for (auto it = m_relaySlots.begin(); it != m_relaySlots.end() && *it < now;)
+        {
+            it = m_relaySlots.erase(it);
+        }
+        NrSlGrant relay;
+        for (uint8_t k = 0; k < 2; ++k)
+        {
+            if (coop.relaySlot[k] == 0)
+            {
+                continue;
+            }
+            SlGrantResource res;
+            res.sfn.FromEncoding(coop.relaySlot[k]);
+            if (!(m_currentSfn < res.sfn))
+            {
+                NS_LOG_DEBUG("Relay slot " << res.sfn.Normalize() << " already passed (now "
+                                           << now << ")");
+                m_coopRelayTrace(COOP_RELAY_TOO_LATE,
+                                 txTag.GetRnti(),
+                                 sciF2a.GetHarqId(),
+                                 res.sfn.Normalize());
+                continue;
+            }
+            if (!m_relaySlots.insert(res.sfn.Normalize()).second)
+            {
+                continue; // already scheduled from another copy of this TB
+            }
+            res.dstL2Id = sciF2a.GetDstId();
+            res.slRlcPduInfo.emplace_back(txTag.GetLcid(), coop.tbSize);
+            res.slPsschSubChStart = coop.relaySbStart[k];
+            res.slPsschSubChLength = coop.sbLength;
+            res.mcs = coop.mcs;
+            res.numSlPscchRbs = coop.pscchRbs;
+            res.slPscchSymStart = coop.pscchSymStart;
+            res.slPscchSymLength = coop.pscchSymLength;
+            res.slPsschSymStart = coop.psschSymStart;
+            res.slHasPsfch = m_slTxPool->SlotHasPsfch(res.sfn.Normalize(), GetBwpId(), m_poolId);
+            res.slPsschSymLength = coop.psschSymLength - (res.slHasPsfch ? 3 : 0);
+            res.ndi = 0;
+            res.rv = 2;
+            res.priority = 1;
+            res.txSci1A = true;
+            res.slotNumInd = 1;
+            res.maxNumPerReserve = 1;
+            relay.slotAllocations.insert(res);
+        }
+        if (!relay.slotAllocations.empty())
+        {
+            auto harqIdOpt =
+                m_nrSlHarq->AllocateHarqProcessId(sciF2a.GetDstId(), false, MilliSeconds(100));
+            if (!harqIdOpt.has_value())
+            {
+                NS_LOG_WARN("Helper RNTI " << GetRnti() << ": no free HARQ process, relay dropped");
+                m_coopRelayTrace(COOP_RELAY_NO_HARQ, txTag.GetRnti(), sciF2a.GetHarqId(), now);
+            }
+            else
+            {
+                Ptr<PacketBurst> relayPb = CreateObject<PacketBurst>();
+                for (const auto& pkt : dataPkts)
+                {
+                    Ptr<Packet> copy = pkt->Copy();
+                    LteRadioBearerTag t;
+                    if (copy->PeekPacketTag(t))
+                    {
+                        t.SetRnti(GetRnti()); // the PHY matches PSSCH and SCI-1A by RNTI
+                        copy->ReplacePacketTag(t);
+                    }
+                    relayPb->AddPacket(copy);
+                }
+                relay.harqId = harqIdOpt.value();
+                // NACK/Feedback-triggered: the receivers give PSFCH feedback on the relayed
+                // copy too (SCI-2A HARQ feedback indicator), so the helper's next
+                // relay slot can be gated as well
+                const uint8_t fbMode = (m_helperFbMode > 0) ? m_helperFbMode : (m_helperNackTriggered ? 1 : 0);
+                relay.harqEnabled = (fbMode > 0);
+                relay.relayNackGated = (fbMode > 0);
+                relay.relayFbMode = fbMode;
+                relay.relayNackSeen = false;
+                relay.relayOverheardAcks.clear();
+                relay.relayAwaitRnti = txTag.GetRnti();
+                relay.nSelected = static_cast<uint8_t>(relay.slotAllocations.size());
+                relay.tbTxCounter = 1; // grant removed after its last slot
+                relay.tbSize = coop.tbSize;
+                relay.castType = static_cast<SidelinkInfo::CastType>(sciF2a.GetCastType());
+                relay.relayedFromRnti = txTag.GetRnti();
+                relay.relayedSrcL2Id = sciF2a.GetSrcId();
+                relay.relayedHarqId = sciF2a.GetHarqId();
+                relay.relayedNdiBit = sciF2a.GetNdiBit();
+                if (coop.deadline != 0)
+                {
+                    // split arm: the transmitter keeps a retransmission before
+                    // the handed-over slot; only a NACK on that one counts
+                    SfnSf after;
+                    after.FromEncoding(coop.deadline);
+                    relay.relayNackAfter = after.Normalize();
+                }
+                m_nrSlHarq->ForceHarqIdForRelay(relay.harqId,
+                                                sciF2a.GetDstId(),
+                                                relay.nSelected,
+                                                relayPb,
+                                                coop.tbSize);
+                m_slGrants[sciF2a.GetDstId()].push_back(relay);
+                m_coopRelayTrace(COOP_RELAY_SCHEDULED,
+                                 txTag.GetRnti(),
+                                 sciF2a.GetHarqId(),
+                                 relay.slotAllocations.begin()->sfn.Normalize());
+                std::ostringstream slots;
+                for (const auto& r : relay.slotAllocations)
+                {
+                    slots << ' ' << r.sfn.Normalize() << ":sb" << r.slPsschSubChStart;
+                }
+                NS_LOG_DEBUG("Helper RNTI " << GetRnti() << " relays HARQ " << +sciF2a.GetHarqId()
+                                            << " of RNTI " << txTag.GetRnti() << " in slots"
+                                            << slots.str());
+            }
+        }
     }
 
     for (auto& pktIt : dataPkts)
@@ -985,6 +1576,40 @@ NrSlUeMac::DoNrSlSlotIndication(const SfnSf& sfn)
                          << " slot " << sfn.GetSlot() << " Normalized slot number "
                          << sfn.Normalize());
 
+    m_currentSfn = sfn;
+    m_absSlotOffset = Simulator::Now().GetNanoSeconds() /
+                          m_nrSlUePhySapProvider->GetSlotPeriod().GetNanoSeconds() -
+                      static_cast<int64_t>(sfn.Normalize());
+    if (m_enableChainedRes && !m_pendingOwnRelays.empty())
+    {
+        for (auto it = m_pendingOwnRelays.begin(); it != m_pendingOwnRelays.end();)
+        {
+            SfnSf deadline;
+            deadline.FromEncoding(it->coop.deadline);
+            const uint8_t fbMode = (m_helperFbMode > 0) ? m_helperFbMode : (m_helperNackTriggered ? 1 : 0);
+            const bool expired = !(sfn < deadline) || (it->coop.ownRes == 2 && sfn.Normalize() > it->nackUntil) ||
+                                 (fbMode == 2 && it->nackUntil > 0 && sfn.Normalize() > it->nackUntil);
+            if (expired)
+            {
+                if (fbMode == 2 && (it->overheardAcks.size() < m_helperGroupSize || it->nackSeen))
+                {
+                    // Option 2 trigger fired at decision deadline
+                    PendingOwnRelay p = *it;
+                    it = m_pendingOwnRelays.erase(it);
+                    SelectOwnRelayResources(p);
+                }
+                else
+                {
+                    m_coopRelayTrace(COOP_RELAY_NO_NACK, it->fromRnti, it->harqId, sfn.Normalize());
+                    it = m_pendingOwnRelays.erase(it);
+                }
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
     bool atLeastOneTransmissionInSlot = false;
     // If a grant is scheduled for this slot, code below will provide the
     // TTI indication to the PHY (for either PSCCH or PSSCH).  However,
@@ -1025,29 +1650,88 @@ NrSlUeMac::DoNrSlSlotIndication(const SfnSf& sfn)
             bool removeGrant = false;
             NrSlGrant currentGrant = *itGrant;
             // Rename use of *itGrant (and currentGrant) below with "nrSlGrant"
-            NS_ASSERT_MSG(
-                itGrant->slotAllocations.size() > 0,
-                "Empty grant in m_slGrants when iterated in NrUeMac::DoNrSlSlotIndication, rnti: "
-                    << GetRnti() << " harqId: " << +itGrant->harqId);
             auto currentSlotIt = itGrant->slotAllocations.begin();
-            if (currentSlotIt == itGrant->slotAllocations.end())
+            if (m_enableChainedRes)
             {
-                removeGrant = true;
+                // Find the first slot that is either at Now() or in the future. A
+                // grant with no such slot left (e.g. a relay grant whose slot
+                // already passed) is dropped instead of asserting on an empty
+                // grant or dereferencing end() as the stock code below would.
+                while (currentSlotIt != itGrant->slotAllocations.end() &&
+                       currentSlotIt->sfn < sfn)
+                {
+                    ++currentSlotIt;
+                }
+                if (currentSlotIt == itGrant->slotAllocations.end())
+                {
+                    NS_LOG_DEBUG("Dropping grant with no slot left, rnti " << GetRnti() << " harqId "
+                                                                           << +itGrant->harqId);
+                    itGrant = itGrantMap.second.erase(itGrant);
+                    continue;
+                }
             }
             else
             {
-                // Find the first slot that is either at Now() or in the future
-                while (currentSlotIt->sfn < sfn)
+                // stock behaviour
+                NS_ASSERT_MSG(itGrant->slotAllocations.size() > 0,
+                              "Empty grant in m_slGrants when iterated in "
+                              "NrUeMac::DoNrSlSlotIndication, rnti: "
+                                  << GetRnti() << " harqId: " << +itGrant->harqId);
+                if (currentSlotIt == itGrant->slotAllocations.end())
                 {
-                    currentSlotIt++;
-                    if (currentSlotIt == itGrant->slotAllocations.end())
+                    removeGrant = true;
+                }
+                else
+                {
+                    // Find the first slot that is either at Now() or in the future
+                    while (currentSlotIt->sfn < sfn)
                     {
-                        removeGrant = true;
+                        currentSlotIt++;
+                        if (currentSlotIt == itGrant->slotAllocations.end())
+                        {
+                            removeGrant = true;
+                        }
                     }
                 }
             }
             SlGrantResource currentSlot = *currentSlotIt;
+            // Cooperative HARQ: a reserved slot this UE (leader) handed to the helper
+            const bool usurped = m_enableChainedRes &&
+                                 currentGrant.usurpedByHelper.count(currentSlot) > 0 &&
+                                 currentGrant.usurpedByHelper.at(currentSlot);
             // Rename use of currentSlot below with "nrSlSlotAlloc"
+            bool cancelRelay = false;
+            if (!removeGrant && currentGrant.slotAllocations.begin()->sfn == sfn &&
+                currentGrant.relayNackGated)
+            {
+                if (currentGrant.relayFbMode == 2)
+                {
+                    if (currentGrant.relayOverheardAcks.size() >= m_helperGroupSize &&
+                        !currentGrant.relayNackSeen)
+                    {
+                        cancelRelay = true;
+                    }
+                }
+                else if (!currentGrant.relayNackSeen)
+                {
+                    cancelRelay = true;
+                }
+            }
+            if (cancelRelay)
+            {
+                // Option 1 or 2 at the helper: success -> cancel the remaining relay slots
+                NS_LOG_DEBUG("Helper RNTI " << GetRnti() << ": feedback success for HARQ "
+                                            << +currentGrant.relayedHarqId << " of RNTI "
+                                            << currentGrant.relayAwaitRnti << ", relay slot "
+                                            << sfn.Normalize() << " cancelled");
+                m_coopRelayTrace(COOP_RELAY_NO_NACK,
+                                 currentGrant.relayedFromRnti,
+                                 currentGrant.relayedHarqId,
+                                 sfn.Normalize());
+                m_nrSlHarq->DeallocateHarqProcessId(currentGrant.harqId);
+                itGrant = itGrantMap.second.erase(itGrant);
+                continue;
+            }
             if (!removeGrant && currentGrant.slotAllocations.begin()->sfn == sfn)
             {
                 NS_LOG_INFO("Grant at : Frame = " << currentSlot.sfn.GetFrame()
@@ -1065,7 +1749,11 @@ NrSlUeMac::DoNrSlSlotIndication(const SfnSf& sfn)
                                         << currentSlot.dstL2Id
                                         << " harqId: " << +currentGrant.harqId
                                         << " Packet Size: " << itPkt->GetSize());
-                            m_nrSlUePhySapProvider->SendPsschMacPdu(itPkt, currentSlot.dstL2Id);
+                            if (!usurped)
+                            {
+                                m_nrSlUePhySapProvider->SendPsschMacPdu(itPkt,
+                                                                        currentSlot.dstL2Id);
+                            }
                         }
                     }
                     else
@@ -1098,12 +1786,32 @@ NrSlUeMac::DoNrSlSlotIndication(const SfnSf& sfn)
                                          << currentSlot.dstL2Id
                                          << " harqId: " << +currentGrant.harqId
                                          << " Packet Size: " << itPkt->GetSize());
-                            m_nrSlUePhySapProvider->SendPsschMacPdu(itPkt, currentSlot.dstL2Id);
+                            if (!usurped)
+                            {
+                                m_nrSlUePhySapProvider->SendPsschMacPdu(itPkt,
+                                                                        currentSlot.dstL2Id);
+                            }
                         }
                     }
                     else
                     {
                         NS_LOG_DEBUG("Wasted Retx opportunity");
+                    }
+                    if (currentGrant.relayedFromRnti != 0 && m_nrSlMacPduTxed)
+                    {
+                        m_coopRelayTrace(COOP_RELAY_SENT,
+                                         currentGrant.relayedFromRnti,
+                                         currentGrant.relayedHarqId,
+                                         sfn.Normalize());
+                        if (currentGrant.relayNackGated)
+                        {
+                            itGrant->relayNackSeen = false;
+                            itGrant->relayOverheardAcks.clear();
+                            itGrant->relayAwaitRnti = GetRnti();
+                            itGrant->relayNackAfter = 0;
+                            m_relayFbKeys[{currentSlot.dstL2Id, currentGrant.relayedHarqId}] =
+                                Simulator::Now() + MilliSeconds(100);
+                        }
                     }
                 }
                 // Remove current slot allocation from this grant
@@ -1123,169 +1831,269 @@ NrSlUeMac::DoNrSlSlotIndication(const SfnSf& sfn)
                                  << " slot = " << currentSlot.sfn.GetSlot());
                     continue;
                 }
-                atLeastOneTransmissionInSlot = true;
-
-                // prepare and send SCI format 2A message
-                NrSlSciF2aHeader sciF2a;
-                sciF2a.SetHarqId(currentGrant.harqId);
-                sciF2a.SetNdi(currentSlot.ndi);
-                sciF2a.SetRv(currentSlot.rv);
-                sciF2a.SetSrcId(m_srcL2Id);
-                sciF2a.SetDstId(currentSlot.dstL2Id);
-                // fields which are not used yet that is why we set them to 0
-                sciF2a.SetCsiReq(0);
-                SidelinkLcIdentifier slLcId;
-                // If multiple TB and LC are handled by this grant, they should
-                // all share the same cast type, so it should suffice to fetch the
-                // cast type from the first LC ID associated with the grant
-                NS_ASSERT_MSG(currentSlot.slRlcPduInfo.size() > 0, "No SlRlcPduInfo available");
-                slLcId.lcId = currentSlot.slRlcPduInfo.front().lcid;
-                slLcId.srcL2Id = m_srcL2Id;
-                slLcId.dstL2Id = currentSlot.dstL2Id;
-                NS_ASSERT_MSG(currentGrant.castType != SidelinkInfo::CastType::Invalid,
-                              "Invalid cast type for LC " << +slLcId.lcId << " dstL2Id "
-                                                          << currentSlot.dstL2Id);
-                sciF2a.SetCastType(static_cast<uint8_t>(currentGrant.castType));
-                // Request HARQ feedback if HARQ enabled and PSFCH period > 0
-                if (currentGrant.harqEnabled &&
-                    (m_slTxPool->GetPsfchPeriod(GetBwpId(), m_poolId) > 0))
+                if (usurped)
                 {
-                    sciF2a.SetHarqFbIndicator(1);
+                    // the helper transmits in this reserved slot
+                    NS_LOG_DEBUG("RNTI " << GetRnti() << " leaves slot " << sfn.Normalize()
+                                         << ":sb" << currentSlot.slPsschSubChStart
+                                         << " to helper " << currentGrant.helperId);
                 }
                 else
                 {
-                    sciF2a.SetHarqFbIndicator(0);
-                }
+                    atLeastOneTransmissionInSlot = true;
 
-                Ptr<Packet> pktSciF02 = Create<Packet>();
-                pktSciF02->AddHeader(sciF2a);
-                // put SCI stage 2 in PSSCH queue
-                m_nrSlUePhySapProvider->SendPsschMacPdu(pktSciF02, currentSlot.dstL2Id);
-
-                // set the VarTti allocation info for PSSCH
-                NrSlVarTtiAllocInfo dataVarTtiInfo;
-                dataVarTtiInfo.SlVarTtiType = NrSlVarTtiAllocInfo::DATA;
-                dataVarTtiInfo.symStart = currentSlot.slPsschSymStart;
-                dataVarTtiInfo.symLength = currentSlot.slPsschSymLength;
-                dataVarTtiInfo.rbStart = currentSlot.slPsschSubChStart *
-                                         m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
-                dataVarTtiInfo.rbLength = currentSlot.slPsschSubChLength *
-                                          m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
-                m_nrSlUePhySapProvider->SetNrSlVarTtiAllocInfo(sfn, dataVarTtiInfo);
-
-                // Collect statistics for NR SL PSCCH UE MAC scheduling trace
-                SlPsschUeMacStatParameters psschStatsParams;
-                psschStatsParams.timeMs = Simulator::Now().GetSeconds() * 1000.0;
-                psschStatsParams.imsi = GetImsi();
-                psschStatsParams.rnti = GetRnti();
-                psschStatsParams.frameNum = currentSlot.sfn.GetFrame();
-                psschStatsParams.subframeNum = currentSlot.sfn.GetSubframe();
-                psschStatsParams.slotNum = currentSlot.sfn.GetSlot();
-                psschStatsParams.symStart = currentSlot.slPsschSymStart;
-                psschStatsParams.symLength = currentSlot.slPsschSymLength;
-                psschStatsParams.rbStart = currentSlot.slPsschSubChStart *
-                                           m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
-                psschStatsParams.subChannelSize =
-                    m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
-                psschStatsParams.rbLength = currentSlot.slPsschSubChLength *
-                                            m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
-                psschStatsParams.harqId = currentGrant.harqId;
-                psschStatsParams.ndi = currentSlot.ndi;
-                psschStatsParams.rv = currentSlot.rv;
-                psschStatsParams.srcL2Id = m_srcL2Id;
-                psschStatsParams.dstL2Id = currentSlot.dstL2Id;
-                psschStatsParams.csiReq = sciF2a.GetCsiReq();
-                psschStatsParams.castType = sciF2a.GetCastType();
-#ifdef NOTYET
-                psschStatsParams.resoReselCounter = itGrantInfo.second.slResoReselCounter;
-                psschStatsParams.cReselCounter = itGrantInfo.second.cReselCounter;
-#endif
-
-                m_slPsschScheduling(psschStatsParams); // Trace
-
-                if (currentSlot.txSci1A)
-                {
-                    // prepare and send SCI format 1A message
-                    NrSlSciF1aHeader sciF1a;
-                    sciF1a.SetPriority(currentSlot.priority);
-                    sciF1a.SetMcs(currentSlot.mcs);
-                    sciF1a.SetSciStage2Format(NrSlSciF1aHeader::SciFormat2A);
-                    sciF1a.SetSlResourceReservePeriod(
-                        static_cast<uint16_t>(currentGrant.rri.GetMilliSeconds()));
-                    sciF1a.SetTotalSubChannels(GetTotalSubCh());
-                    sciF1a.SetIndexStartSubChannel(currentSlot.slPsschSubChStart);
-                    sciF1a.SetLengthSubChannel(currentSlot.slPsschSubChLength);
-                    sciF1a.SetSlMaxNumPerReserve(currentSlot.maxNumPerReserve);
-                    if (currentSlot.slotNumInd > 1)
+                    // prepare and send SCI format 2A message
+                    NrSlSciF2aHeader sciF2a;
+                    // a helper relaying another UE's TB signals that UE's HARQ
+                    // process and source, so receivers combine and reassemble it
+                    // as that TB
+                    const bool relaying = currentGrant.relayedFromRnti != 0;
+                    sciF2a.SetHarqId(relaying ? currentGrant.relayedHarqId : currentGrant.harqId);
+                    sciF2a.SetNdi(currentSlot.ndi);
+                    // 3GPP NDI bit: toggled at each new TB of the HARQ process; a relayed copy
+                    // carries the original transmitter's bit, as it carries its HARQ id
+                    if (relaying)
                     {
-                        // itGrant->slotAllocations.cbegin () points to
-                        // the next slot allocation this slot has to indicate
-                        std::vector<uint8_t> gaps = ComputeGaps(currentSlot.sfn,
-                                                                itGrant->slotAllocations.cbegin(),
-                                                                currentSlot.slotNumInd);
-                        std::vector<uint8_t> sbChIndex =
-                            GetStartSbChOfReTx(itGrant->slotAllocations.cbegin(),
-                                               currentSlot.slotNumInd);
-                        sciF1a.SetGapReTx1(gaps.at(0));
-                        sciF1a.SetIndexStartSbChReTx1(sbChIndex.at(0));
-                        if (gaps.size() > 1)
+                        sciF2a.SetNdiBit(currentGrant.relayedNdiBit);
+                    }
+                    else
+                    {
+                        uint8_t& ndiBit = m_slNdiBit[{currentSlot.dstL2Id, currentGrant.harqId}];
+                        if (currentSlot.ndi)
                         {
-                            sciF1a.SetGapReTx2(gaps.at(1));
-                            NS_ASSERT_MSG(gaps.at(0) < gaps.at(1),
-                                          "Incorrect computation of ReTx slot gaps");
-                            sciF1a.SetIndexStartSbChReTx2(sbChIndex.at(1));
+                            ndiBit ^= 1;
                         }
+                        sciF2a.SetNdiBit(ndiBit);
+                    }
+                    sciF2a.SetRv(currentSlot.rv);
+                    sciF2a.SetSrcId(relaying ? currentGrant.relayedSrcL2Id : m_srcL2Id);
+                    sciF2a.SetDstId(currentSlot.dstL2Id);
+                    // fields which are not used yet that is why we set them to 0
+                    sciF2a.SetCsiReq(0);
+                    [[maybe_unused]] SidelinkLcIdentifier slLcId;
+                    // If multiple TB and LC are handled by this grant, they should
+                    // all share the same cast type, so it should suffice to fetch the
+                    // cast type from the first LC ID associated with the grant
+                    NS_ASSERT_MSG(currentSlot.slRlcPduInfo.size() > 0, "No SlRlcPduInfo available");
+                    slLcId.lcId = currentSlot.slRlcPduInfo.front().lcid;
+                    slLcId.srcL2Id = m_srcL2Id;
+                    slLcId.dstL2Id = currentSlot.dstL2Id;
+                    NS_ASSERT_MSG(currentGrant.castType != SidelinkInfo::CastType::Invalid,
+                                  "Invalid cast type for LC " << +slLcId.lcId << " dstL2Id "
+                                                              << currentSlot.dstL2Id);
+                    sciF2a.SetCastType(static_cast<uint8_t>(currentGrant.castType));
+                    // Request HARQ feedback if HARQ enabled and PSFCH period > 0
+                    if (currentGrant.harqEnabled &&
+                        (m_slTxPool->GetPsfchPeriod(GetBwpId(), m_poolId) > 0))
+                    {
+                        sciF2a.SetHarqFbIndicator(1);
+                    }
+                    else
+                    {
+                        sciF2a.SetHarqFbIndicator(0);
                     }
 
-                    Ptr<Packet> pktSciF1a = Create<Packet>();
-                    pktSciF1a->AddHeader(sciF1a);
-                    NrSlMacPduTag tag(GetRnti(),
-                                      currentSlot.sfn,
-                                      currentSlot.slPsschSymStart,
-                                      currentSlot.slPsschSymLength,
-                                      currentGrant.tbSize,
-                                      currentSlot.dstL2Id);
-                    pktSciF1a->AddPacketTag(tag);
+                    if (m_enableChainedRes)
+                    {
+                        NrSlSciF2aHeader::CoopInfo coop;
+                        if (relaying)
+                        {
+                            coop.relayedFromRnti = currentGrant.relayedFromRnti;
+                        }
+                        else if (currentGrant.helperId != 0)
+                        {
+                            // later reserved slots handed to the helper (the current
+                            // slot was already erased from itGrant)
+                            coop.helperId = currentGrant.helperId;
+                            uint8_t k = 0;
+                            for (const auto& slot : itGrant->slotAllocations)
+                            {
+                                if (k < 2 && currentSlot.sfn < slot.sfn &&
+                                    currentGrant.usurpedByHelper.count(slot) > 0 &&
+                                    currentGrant.usurpedByHelper.at(slot))
+                                {
+                                    coop.relaySlot[k] = slot.sfn.GetEncoding();
+                                    coop.relaySbStart[k] =
+                                        static_cast<uint8_t>(slot.slPsschSubChStart);
+                                    ++k;
+                                }
+                            }
+                            const bool hasPsfch =
+                                m_slTxPool->SlotHasPsfch(currentSlot.sfn.Normalize(),
+                                                         GetBwpId(),
+                                                         m_poolId);
+                            coop.sbLength = static_cast<uint8_t>(currentSlot.slPsschSubChLength);
+                            coop.mcs = currentSlot.mcs;
+                            coop.tbSize = currentGrant.tbSize;
+                            coop.pscchRbs = currentSlot.numSlPscchRbs;
+                            coop.pscchSymStart = static_cast<uint8_t>(currentSlot.slPscchSymStart);
+                            coop.pscchSymLength =
+                                static_cast<uint8_t>(currentSlot.slPscchSymLength);
+                            coop.psschSymStart = static_cast<uint8_t>(currentSlot.slPsschSymStart);
+                            coop.psschSymLength =
+                                static_cast<uint8_t>(currentSlot.slPsschSymLength + (hasPsfch ? 3 : 0));
+                            if (currentGrant.helperOwnRes)
+                            {
+                                coop.ownRes = currentGrant.helperAdditive ? 2 : 1;
+                                coop.relayTxMax = currentGrant.relayTxMax;
+                                coop.deadline = currentGrant.helperDeadline.GetEncoding();
+                            }
+                            else if (k > 0)
+                            {
+                                // split arm: own transmission(s) of this UE between this
+                                // one and the first handed-over slot: the helper waits for
+                                // a NACK on the last of them (deadline field = that slot)
+                                const SfnSf firstHanded = SfnSf::Decode(coop.relaySlot[0]);
+                                const SlGrantResource* lastOwn = nullptr;
+                                for (const auto& slot : itGrant->slotAllocations)
+                                {
+                                    if (currentSlot.sfn < slot.sfn && slot.sfn < firstHanded &&
+                                        !(currentGrant.usurpedByHelper.count(slot) > 0 &&
+                                          currentGrant.usurpedByHelper.at(slot)))
+                                    {
+                                        lastOwn = &slot;
+                                    }
+                                }
+                                if (lastOwn)
+                                {
+                                    coop.deadline = lastOwn->sfn.GetEncoding();
+                                }
+                            }
+                        }
+                        sciF2a.SetCoopInfo(coop);
+                    }
 
-                    NS_LOG_DEBUG("Sending PSCCH MAC PDU dstL2Id: "
-                                 << currentSlot.dstL2Id << " harqId: " << +currentGrant.harqId);
-                    m_nrSlUePhySapProvider->SendPscchMacPdu(pktSciF1a);
+                    Ptr<Packet> pktSciF02 = Create<Packet>();
+                    pktSciF02->AddHeader(sciF2a);
+                    // put SCI stage 2 in PSSCH queue
+                    m_nrSlUePhySapProvider->SendPsschMacPdu(pktSciF02, currentSlot.dstL2Id);
 
-                    // set the VarTti allocation info for PSCCH
-                    NrSlVarTtiAllocInfo ctrlVarTtiInfo;
-                    ctrlVarTtiInfo.SlVarTtiType = NrSlVarTtiAllocInfo::CTRL;
-                    ctrlVarTtiInfo.symStart = currentSlot.slPscchSymStart;
-                    ctrlVarTtiInfo.symLength = currentSlot.slPscchSymLength;
-                    ctrlVarTtiInfo.rbStart = currentSlot.slPsschSubChStart *
+                    // set the VarTti allocation info for PSSCH
+                    NrSlVarTtiAllocInfo dataVarTtiInfo;
+                    dataVarTtiInfo.SlVarTtiType = NrSlVarTtiAllocInfo::DATA;
+                    dataVarTtiInfo.symStart = currentSlot.slPsschSymStart;
+                    dataVarTtiInfo.symLength = currentSlot.slPsschSymLength;
+                    dataVarTtiInfo.rbStart = currentSlot.slPsschSubChStart *
                                              m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
-                    ctrlVarTtiInfo.rbLength = currentSlot.numSlPscchRbs;
-                    m_nrSlUePhySapProvider->SetNrSlVarTtiAllocInfo(sfn, ctrlVarTtiInfo);
+                    dataVarTtiInfo.rbLength = currentSlot.slPsschSubChLength *
+                                              m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
+                    m_nrSlUePhySapProvider->SetNrSlVarTtiAllocInfo(sfn, dataVarTtiInfo);
 
                     // Collect statistics for NR SL PSCCH UE MAC scheduling trace
-                    SlPscchUeMacStatParameters pscchStatsParams;
-                    pscchStatsParams.timeMs = Simulator::Now().GetSeconds() * 1000.0;
-                    pscchStatsParams.imsi = GetImsi();
-                    pscchStatsParams.rnti = GetRnti();
-                    pscchStatsParams.frameNum = currentSlot.sfn.GetFrame();
-                    pscchStatsParams.subframeNum = currentSlot.sfn.GetSubframe();
-                    pscchStatsParams.slotNum = currentSlot.sfn.GetSlot();
-                    pscchStatsParams.symStart = currentSlot.slPscchSymStart;
-                    pscchStatsParams.symLength = currentSlot.slPscchSymLength;
-                    pscchStatsParams.rbStart = currentSlot.slPsschSubChStart *
+                    SlPsschUeMacStatParameters psschStatsParams;
+                    psschStatsParams.timeMs = Simulator::Now().GetSeconds() * 1000.0;
+                    psschStatsParams.imsi = GetImsi();
+                    psschStatsParams.rnti = GetRnti();
+                    psschStatsParams.frameNum = currentSlot.sfn.GetFrame();
+                    psschStatsParams.subframeNum = currentSlot.sfn.GetSubframe();
+                    psschStatsParams.slotNum = currentSlot.sfn.GetSlot();
+                    psschStatsParams.symStart = currentSlot.slPsschSymStart;
+                    psschStatsParams.symLength = currentSlot.slPsschSymLength;
+                    psschStatsParams.rbStart = currentSlot.slPsschSubChStart *
                                                m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
-                    pscchStatsParams.rbLength = currentSlot.numSlPscchRbs;
-                    pscchStatsParams.priority = currentSlot.priority;
-                    pscchStatsParams.mcs = currentSlot.mcs;
-                    pscchStatsParams.tbSize = currentGrant.tbSize;
-                    pscchStatsParams.slResourceReservePeriod =
-                        static_cast<uint16_t>(currentGrant.rri.GetMilliSeconds());
-                    pscchStatsParams.totalSubChannels = GetTotalSubCh();
-                    pscchStatsParams.slPsschSubChStart = currentSlot.slPsschSubChStart;
-                    pscchStatsParams.slPsschSubChLength = currentSlot.slPsschSubChLength;
-                    pscchStatsParams.slMaxNumPerReserve = currentSlot.maxNumPerReserve;
-                    pscchStatsParams.gapReTx1 = sciF1a.GetGapReTx1();
-                    pscchStatsParams.gapReTx2 = sciF1a.GetGapReTx2();
-                    m_slPscchScheduling(pscchStatsParams); // Trace
+                    psschStatsParams.subChannelSize =
+                        m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
+                    psschStatsParams.rbLength = currentSlot.slPsschSubChLength *
+                                                m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
+                    // the HARQ id signalled in SCI-2A (the original TX's for a relayed copy)
+                    psschStatsParams.harqId = sciF2a.GetHarqId();
+                    psschStatsParams.ndi = currentSlot.ndi;
+                    psschStatsParams.rv = currentSlot.rv;
+                    psschStatsParams.srcL2Id = m_srcL2Id;
+                    psschStatsParams.dstL2Id = currentSlot.dstL2Id;
+                    psschStatsParams.csiReq = sciF2a.GetCsiReq();
+                    psschStatsParams.castType = sciF2a.GetCastType();
+    #ifdef NOTYET
+                    psschStatsParams.resoReselCounter = itGrantInfo.second.slResoReselCounter;
+                    psschStatsParams.cReselCounter = itGrantInfo.second.cReselCounter;
+    #endif
+
+                    m_slPsschScheduling(psschStatsParams); // Trace
+
+                    if (currentSlot.txSci1A)
+                    {
+                        // prepare and send SCI format 1A message
+                        NrSlSciF1aHeader sciF1a;
+                        sciF1a.SetPriority(currentSlot.priority);
+                        sciF1a.SetMcs(currentSlot.mcs);
+                        sciF1a.SetSciStage2Format(NrSlSciF1aHeader::SciFormat2A);
+                        sciF1a.SetSlResourceReservePeriod(
+                            static_cast<uint16_t>(currentGrant.rri.GetMilliSeconds()));
+                        sciF1a.SetTotalSubChannels(GetTotalSubCh());
+                        sciF1a.SetIndexStartSubChannel(currentSlot.slPsschSubChStart);
+                        sciF1a.SetLengthSubChannel(currentSlot.slPsschSubChLength);
+                        sciF1a.SetSlMaxNumPerReserve(currentSlot.maxNumPerReserve);
+                        if (currentSlot.slotNumInd > 1)
+                        {
+                            // itGrant->slotAllocations.cbegin () points to
+                            // the next slot allocation this slot has to indicate
+                            std::vector<uint8_t> gaps = ComputeGaps(currentSlot.sfn,
+                                                                    itGrant->slotAllocations.cbegin(),
+                                                                    currentSlot.slotNumInd);
+                            std::vector<uint8_t> sbChIndex =
+                                GetStartSbChOfReTx(itGrant->slotAllocations.cbegin(),
+                                                   currentSlot.slotNumInd);
+                            sciF1a.SetGapReTx1(gaps.at(0));
+                            sciF1a.SetIndexStartSbChReTx1(sbChIndex.at(0));
+                            if (gaps.size() > 1)
+                            {
+                                sciF1a.SetGapReTx2(gaps.at(1));
+                                NS_ASSERT_MSG(gaps.at(0) < gaps.at(1),
+                                              "Incorrect computation of ReTx slot gaps");
+                                sciF1a.SetIndexStartSbChReTx2(sbChIndex.at(1));
+                            }
+                        }
+
+                        Ptr<Packet> pktSciF1a = Create<Packet>();
+                        pktSciF1a->AddHeader(sciF1a);
+                        NrSlMacPduTag tag(GetRnti(),
+                                          currentSlot.sfn,
+                                          currentSlot.slPsschSymStart,
+                                          currentSlot.slPsschSymLength,
+                                          currentGrant.tbSize,
+                                          currentSlot.dstL2Id);
+                        pktSciF1a->AddPacketTag(tag);
+
+                        NS_LOG_DEBUG("Sending PSCCH MAC PDU dstL2Id: "
+                                     << currentSlot.dstL2Id << " harqId: " << +currentGrant.harqId);
+                        m_nrSlUePhySapProvider->SendPscchMacPdu(pktSciF1a);
+
+                        // set the VarTti allocation info for PSCCH
+                        NrSlVarTtiAllocInfo ctrlVarTtiInfo;
+                        ctrlVarTtiInfo.SlVarTtiType = NrSlVarTtiAllocInfo::CTRL;
+                        ctrlVarTtiInfo.symStart = currentSlot.slPscchSymStart;
+                        ctrlVarTtiInfo.symLength = currentSlot.slPscchSymLength;
+                        ctrlVarTtiInfo.rbStart = currentSlot.slPsschSubChStart *
+                                                 m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
+                        ctrlVarTtiInfo.rbLength = currentSlot.numSlPscchRbs;
+                        m_nrSlUePhySapProvider->SetNrSlVarTtiAllocInfo(sfn, ctrlVarTtiInfo);
+
+                        // Collect statistics for NR SL PSCCH UE MAC scheduling trace
+                        SlPscchUeMacStatParameters pscchStatsParams;
+                        pscchStatsParams.timeMs = Simulator::Now().GetSeconds() * 1000.0;
+                        pscchStatsParams.imsi = GetImsi();
+                        pscchStatsParams.rnti = GetRnti();
+                        pscchStatsParams.frameNum = currentSlot.sfn.GetFrame();
+                        pscchStatsParams.subframeNum = currentSlot.sfn.GetSubframe();
+                        pscchStatsParams.slotNum = currentSlot.sfn.GetSlot();
+                        pscchStatsParams.symStart = currentSlot.slPscchSymStart;
+                        pscchStatsParams.symLength = currentSlot.slPscchSymLength;
+                        pscchStatsParams.rbStart = currentSlot.slPsschSubChStart *
+                                                   m_slTxPool->GetNrSlSubChSize(GetBwpId(), m_poolId);
+                        pscchStatsParams.rbLength = currentSlot.numSlPscchRbs;
+                        pscchStatsParams.priority = currentSlot.priority;
+                        pscchStatsParams.mcs = currentSlot.mcs;
+                        pscchStatsParams.tbSize = currentGrant.tbSize;
+                        pscchStatsParams.slResourceReservePeriod =
+                            static_cast<uint16_t>(currentGrant.rri.GetMilliSeconds());
+                        pscchStatsParams.totalSubChannels = GetTotalSubCh();
+                        pscchStatsParams.slPsschSubChStart = currentSlot.slPsschSubChStart;
+                        pscchStatsParams.slPsschSubChLength = currentSlot.slPsschSubChLength;
+                        pscchStatsParams.slMaxNumPerReserve = currentSlot.maxNumPerReserve;
+                        pscchStatsParams.gapReTx1 = sciF1a.GetGapReTx1();
+                        pscchStatsParams.gapReTx2 = sciF1a.GetGapReTx2();
+                        m_slPscchScheduling(pscchStatsParams); // Trace
+                    }
                 }
             }
             else
@@ -1315,6 +2123,141 @@ NrSlUeMac::DoNrSlSlotIndication(const SfnSf& sfn)
         NS_LOG_DEBUG("IMSI " << GetImsi() << " adding SFN history at sfn " << sfn);
         m_transmitHistory.push_back(sfn);
     }
+}
+
+uint64_t
+NrSlUeMac::NackKnownAfter(const SfnSf& s, uint8_t minTimeGapPsfch) const
+{
+    for (uint32_t k = minTimeGapPsfch; k < 64; ++k)
+    {
+        SfnSf t = s;
+        t.Add(k);
+        if (m_slTxPool->SlotHasPsfch(t.Normalize(), GetBwpId(), m_poolId))
+        {
+            return t.Normalize() + 1; // PSFCH decoded one slot later (NrUePhy)
+        }
+    }
+    return s.Normalize() + 64;
+}
+
+void
+NrSlUeMac::SelectOwnRelayResources(const PendingOwnRelay& p)
+{
+    NS_LOG_FUNCTION(this << p.fromRnti << +p.harqId);
+    SfnSf deadline;
+    deadline.FromEncoding(p.coop.deadline);
+    const uint64_t now = m_currentSfn.Normalize();
+    const uint64_t dl = deadline.Normalize();
+    if (dl <= now + m_t1 + 1 || p.coop.relayTxMax == 0)
+    {
+        m_coopRelayTrace(p.coop.ownRes == 2 && p.coop.relayTxMax > 0 ? COOP_RELAY_TOO_LATE
+                                                                     : COOP_RELAY_NO_RESOURCE,
+                         p.fromRnti,
+                         p.harqId,
+                         now);
+        return;
+    }
+    // The remaining packet delay budget bounds the selection window. TS 38.214
+    // sets T2 to the remaining budget when it is below T2min; the pool code
+    // requires T2 >= T2min, so the window is at least T2min long and the
+    // candidates after the deadline are discarded below.
+    const Time slot = MicroSeconds(1000 >> m_currentSfn.GetNumerology());
+    const uint64_t t2min =
+        m_slTxPool->GetT2Min(GetBwpId(), m_poolId, m_currentSfn.GetNumerology());
+    const uint64_t window = std::max<uint64_t>(dl - now, t2min);
+    NrSlTransmissionParams params(1,
+                                  slot * static_cast<int64_t>(window),
+                                  p.coop.sbLength,
+                                  Seconds(0),
+                                  0);
+    std::list<SlResourceInfo> candList = GetCandidateResources(m_currentSfn, params);
+    std::vector<SlResourceInfo> cand(candList.begin(), candList.end());
+    std::vector<SlResourceInfo> picks;
+    uint64_t earliest = now + 1;
+    while (picks.size() < p.coop.relayTxMax)
+    {
+        std::vector<size_t> ok;
+        for (size_t i = 0; i < cand.size(); ++i)
+        {
+            const uint64_t c = cand[i].sfn.Normalize();
+            if (c >= earliest && c < dl && !m_relaySlots.count(c))
+            {
+                ok.push_back(i);
+            }
+        }
+        if (ok.empty())
+        {
+            break;
+        }
+        const SlResourceInfo& r =
+            cand[ok[m_ueSelectedUniformVariable->GetInteger(0, ok.size() - 1)]];
+        picks.push_back(r);
+        // the next relay is NACK-gated: after the PSFCH of this one is known
+        earliest = NackKnownAfter(r.sfn, r.slMinTimeGapPsfch) + 1;
+    }
+    if (picks.empty())
+    {
+        m_coopRelayTrace(COOP_RELAY_NO_RESOURCE, p.fromRnti, p.harqId, now);
+        return;
+    }
+    auto harqIdOpt = m_nrSlHarq->AllocateHarqProcessId(p.dstL2Id, false, MilliSeconds(100));
+    if (!harqIdOpt.has_value())
+    {
+        m_coopRelayTrace(COOP_RELAY_NO_HARQ, p.fromRnti, p.harqId, now);
+        return;
+    }
+    NrSlGrant relay;
+    for (size_t k = 0; k < picks.size(); ++k)
+    {
+        const SlResourceInfo& r = picks[k];
+        SlGrantResource res;
+        res.sfn = r.sfn;
+        res.dstL2Id = p.dstL2Id;
+        res.slRlcPduInfo.emplace_back(p.lcid, p.coop.tbSize);
+        res.slPsschSubChStart = r.slSubchannelStart;
+        res.slPsschSubChLength = r.slSubchannelLength;
+        res.mcs = p.coop.mcs;
+        res.numSlPscchRbs = r.numSlPscchRbs;
+        res.slPscchSymStart = r.slPscchSymStart;
+        res.slPscchSymLength = r.slPscchSymLength;
+        res.slPsschSymStart = r.slPsschSymStart;
+        res.slPsschSymLength = r.slPsschSymLength;
+        res.slHasPsfch = m_slTxPool->SlotHasPsfch(r.sfn.Normalize(), GetBwpId(), m_poolId);
+        res.ndi = 0;
+        res.rv = 2;
+        res.priority = 1;
+        res.txSci1A = true;
+        // the first relay reserves the later one(s) in its SCI-1A (sensing by others)
+        const bool inWindow = picks.back().sfn.Normalize() - r.sfn.Normalize() < 32;
+        res.slotNumInd = static_cast<uint8_t>(inWindow ? picks.size() - k : 1);
+        res.maxNumPerReserve = inWindow ? r.slMaxNumPerReserve : 1;
+        relay.slotAllocations.insert(res);
+        m_relaySlots.insert(r.sfn.Normalize());
+    }
+    relay.harqId = harqIdOpt.value();
+    relay.harqEnabled = true; // receivers NACK the relayed copy
+    relay.nSelected = static_cast<uint8_t>(relay.slotAllocations.size());
+    relay.tbTxCounter = 1;
+    relay.tbSize = p.coop.tbSize;
+    relay.castType = static_cast<SidelinkInfo::CastType>(p.castType);
+    relay.relayedFromRnti = p.fromRnti;
+    relay.relayedSrcL2Id = p.srcL2Id;
+    relay.relayedHarqId = p.harqId;
+    relay.relayedNdiBit = p.ndiBit;
+    const uint8_t fbMode = (m_helperFbMode > 0) ? m_helperFbMode : (m_helperNackTriggered ? 1 : 0);
+    relay.relayFbMode = fbMode;
+    relay.relayNackGated = (fbMode > 0);
+    relay.relayNackSeen = true; // triggered by the NACK just overheard
+    relay.relayAwaitRnti = p.fromRnti;
+    m_nrSlHarq->ForceHarqIdForRelay(relay.harqId, p.dstL2Id, relay.nSelected, p.pb, p.coop.tbSize);
+    m_slGrants[p.dstL2Id].push_back(relay);
+    m_coopRelayTrace(COOP_RELAY_SCHEDULED,
+                     p.fromRnti,
+                     p.harqId,
+                     relay.slotAllocations.begin()->sfn.Normalize());
+    NS_LOG_DEBUG("Helper RNTI " << GetRnti() << " selected " << picks.size()
+                                << " own relay slot(s) for HARQ " << +p.harqId << " of RNTI "
+                                << p.fromRnti << ", first " << picks.front().sfn.Normalize());
 }
 
 std::vector<uint8_t>
@@ -1737,10 +2680,347 @@ NrSlUeMac::EnableSensing(bool enableSensing)
     m_enableSensing = enableSensing;
 }
 
+bool
+NrSlUeMac::GetSpsReselectOnMisfit() const
+{
+    return m_spsReselectOnMisfit;
+}
+
+const std::list<SensingData>&
+NrSlUeMac::GetSensingData() const
+{
+    return m_sensingData;
+}
+
+void
+NrSlUeMac::SetSensingPeer(Ptr<const NrSlUeMac> peer, bool excludeForSelection)
+{
+    NS_LOG_FUNCTION(this << peer << excludeForSelection);
+    NS_ABORT_MSG_IF(peer == this, "a UE cannot be its own sensing peer");
+    m_sensingPeer = peer;
+    m_sensingPeerExclude = (peer != nullptr) && excludeForSelection;
+}
+
+NrSlUeMac::SensedExclusion
+NrSlUeMac::EvaluateSensedExclusion(const SfnSf& n,
+                                   const SfnSf& slot,
+                                   uint8_t sbStart,
+                                   uint8_t sbLen,
+                                   int thr,
+                                   uint16_t t2,
+                                   const std::set<uint16_t>& ignoreRntis) const
+{
+    SensedExclusion e;
+    const Time slotPeriod = m_nrSlUePhySapProvider->GetSlotPeriod();
+    const uint16_t t0 = m_slTxPool->GetNrSlSensWindInSlots(GetBwpId(), m_poolId, slotPeriod);
+    std::vector<int64_t> slots;
+    auto proj = ProjectSensingData(n,
+                                   m_sensingData,
+                                   ignoreRntis,
+                                   t0,
+                                   t2,
+                                   m_slTxPool,
+                                   slotPeriod,
+                                   GetBwpId(),
+                                   m_poolId,
+                                   slots);
+    e.records = static_cast<uint32_t>(proj.size());
+    e.excluded = Step6Excluded(slot,
+                               sbStart,
+                               sbLen,
+                               1,
+                               0,
+                               proj,
+                               thr,
+                               &slots,
+                               &e.latestSlot,
+                               &e.earliestSlot);
+    return e;
+}
+
+bool
+NrSlUeMac::IsSlRetxPending(uint32_t dstL2Id, uint8_t harqId) const
+{
+    auto itGrants = m_slGrants.find(dstL2Id);
+    if (itGrants == m_slGrants.end())
+    {
+        return false;
+    }
+    for (const auto& grant : itGrants->second)
+    {
+        // the slots are erased as they are used: a grant whose first remaining
+        // slot is a retransmission has already sent its new data
+        if (grant.harqId == harqId && !grant.slotAllocations.empty() &&
+            grant.slotAllocations.begin()->ndi == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool
+NrSlUeMac::ReclaimSlHelperSlot(uint32_t dstL2Id, uint8_t harqId, const SfnSf& notBefore)
+{
+    auto itGrants = m_slGrants.find(dstL2Id);
+    if (itGrants == m_slGrants.end())
+    {
+        return false;
+    }
+    for (auto& grant : itGrants->second)
+    {
+        if (grant.harqId != harqId || grant.slotAllocations.empty() ||
+            grant.slotAllocations.begin()->ndi != 0)
+        {
+            continue;
+        }
+        for (const auto& slot : grant.slotAllocations) // time order
+        {
+            if (slot.sfn < notBefore)
+            {
+                continue;
+            }
+            auto it = grant.usurpedByHelper.find(slot);
+            if (it != grant.usurpedByHelper.end() && it->second)
+            {
+                it->second = false;
+                return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+bool
+NrSlUeMac::GetSlNextGrantSlot(uint32_t dstL2Id, uint8_t harqId, SfnSf& slot, bool& usurped) const
+{
+    auto itGrants = m_slGrants.find(dstL2Id);
+    if (itGrants == m_slGrants.end())
+    {
+        return false;
+    }
+    for (const auto& grant : itGrants->second)
+    {
+        if (grant.harqId != harqId || grant.slotAllocations.empty())
+        {
+            continue;
+        }
+        const auto& s = *grant.slotAllocations.begin();
+        slot = s.sfn;
+        auto it = grant.usurpedByHelper.find(s);
+        usurped = it != grant.usurpedByHelper.end() && it->second;
+        return true;
+    }
+    return false;
+}
+
+bool
+NrSlUeMac::ReclaimSlHelperSlot(uint32_t dstL2Id, uint8_t harqId)
+{
+    auto itGrants = m_slGrants.find(dstL2Id);
+    if (itGrants == m_slGrants.end())
+    {
+        return false;
+    }
+    for (auto& grant : itGrants->second)
+    {
+        if (grant.harqId != harqId || grant.slotAllocations.empty() ||
+            grant.slotAllocations.begin()->ndi != 0)
+        {
+            continue;
+        }
+        for (const auto& slot : grant.slotAllocations) // time order
+        {
+            auto it = grant.usurpedByHelper.find(slot);
+            if (it != grant.usurpedByHelper.end() && it->second)
+            {
+                it->second = false;
+                NS_LOG_INFO("RNTI " << GetRnti() << " takes back slot " << slot.sfn.Normalize()
+                                    << " of HARQ " << +harqId << " from helper "
+                                    << grant.helperId);
+                return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+bool
+NrSlUeMac::GetSlNextHelperSlot(uint32_t dstL2Id, uint8_t harqId, SfnSf& slot) const
+{
+    uint16_t sbStart = 0;
+    uint16_t sbLength = 0;
+    return GetSlNextHelperSlot(dstL2Id, harqId, slot, sbStart, sbLength);
+}
+
+bool
+NrSlUeMac::GetSlNextHelperSlot(uint32_t dstL2Id,
+                               uint8_t harqId,
+                               SfnSf& slot,
+                               uint16_t& sbStart,
+                               uint16_t& sbLength) const
+{
+    auto itGrants = m_slGrants.find(dstL2Id);
+    if (itGrants == m_slGrants.end())
+    {
+        return false;
+    }
+    for (const auto& grant : itGrants->second)
+    {
+        if (grant.harqId != harqId || grant.slotAllocations.empty() ||
+            grant.slotAllocations.begin()->ndi != 0)
+        {
+            continue;
+        }
+        for (const auto& s : grant.slotAllocations) // time order
+        {
+            auto it = grant.usurpedByHelper.find(s);
+            if (it != grant.usurpedByHelper.end() && it->second)
+            {
+                slot = s.sfn;
+                sbStart = s.slPsschSubChStart;
+                sbLength = s.slPsschSubChLength;
+                return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+bool
+NrSlUeMac::GetSlGrantLastSlot(uint32_t dstL2Id, uint8_t harqId, SfnSf& last) const
+{
+    bool found = false;
+    auto itGrants = m_slGrants.find(dstL2Id);
+    if (itGrants == m_slGrants.end())
+    {
+        return false;
+    }
+    for (const auto& grant : itGrants->second)
+    {
+        if (grant.harqId == harqId && !grant.slotAllocations.empty())
+        {
+            const SfnSf s = grant.slotAllocations.rbegin()->sfn;
+            if (!found || last < s)
+            {
+                last = s;
+            }
+            found = true;
+        }
+    }
+    return found;
+}
+
 void
 NrSlUeMac::DoReceivePsfch(uint32_t sendingNodeId, SlHarqInfo harqInfo)
 {
     NS_LOG_FUNCTION(this << sendingNodeId << harqInfo.m_rnti);
+    if (m_enableChainedRes && harqInfo.m_bwpIndex == GetBwpId())
+    {
+        // Helper: the PSFCH of the TB's transmitter (and of the helper's own
+        // relayed copies) is overheard
+        auto itGrants = m_slGrants.find(harqInfo.m_dstL2Id);
+        if (itGrants != m_slGrants.end())
+        {
+            for (auto& grant : itGrants->second)
+            {
+                if (grant.relayNackGated && grant.relayedHarqId == harqInfo.m_harqProcessId &&
+                    grant.relayAwaitRnti == harqInfo.m_txRnti &&
+                    (grant.relayNackAfter == 0 ||
+                     m_currentSfn.Normalize() > grant.relayNackAfter))
+                {
+                    if (m_coopActivationDelay.IsStrictlyPositive() && !grant.slotAllocations.empty())
+                    {
+                        // activation deadline: feedback arriving later than
+                        // CoopActivationDelay before the next relay slot cannot gate it
+                        const int64_t slotNs =
+                            m_nrSlUePhySapProvider->GetSlotPeriod().GetNanoSeconds();
+                        const int64_t wrap =
+                            1024LL * 10 * (1LL << m_currentSfn.GetNumerology());
+                        int64_t d = static_cast<int64_t>(
+                                        grant.slotAllocations.begin()->sfn.Normalize()) -
+                                    static_cast<int64_t>(m_currentSfn.Normalize());
+                        if (d < -wrap / 2)
+                        {
+                            d += wrap;
+                        }
+                        const int64_t startNs =
+                            (m_absSlotOffset + static_cast<int64_t>(m_currentSfn.Normalize()) + d) *
+                            slotNs;
+                        if (Simulator::Now().GetNanoSeconds() +
+                                m_coopActivationDelay.GetNanoSeconds() >
+                            startNs)
+                        {
+                            ++m_coopFbLate;
+                            continue;
+                        }
+                    }
+                    if (grant.relayFbMode == 2)
+                    {
+                        if (harqInfo.IsReceivedOk())
+                        {
+                            grant.relayOverheardAcks.insert(harqInfo.m_rnti);
+                        }
+                        else
+                        {
+                            grant.relayNackSeen = true;
+                        }
+                    }
+                    else if (!harqInfo.IsReceivedOk())
+                    {
+                        grant.relayNackSeen = true;
+                    }
+                }
+            }
+        }
+        for (auto it = m_pendingOwnRelays.begin(); it != m_pendingOwnRelays.end(); ++it)
+        {
+            if (it->dstL2Id == harqInfo.m_dstL2Id && it->fromRnti == harqInfo.m_txRnti &&
+                it->harqId == harqInfo.m_harqProcessId &&
+                Simulator::Now().GetNanoSeconds() /
+                        m_nrSlUePhySapProvider->GetSlotPeriod().GetNanoSeconds() >=
+                    static_cast<int64_t>(it->nackFrom))
+            {
+                const uint8_t fbMode = (m_helperFbMode > 0) ? m_helperFbMode : (m_helperNackTriggered ? 1 : 0);
+                if (fbMode == 2)
+                {
+                    if (harqInfo.IsReceivedOk())
+                    {
+                        it->overheardAcks.insert(harqInfo.m_rnti);
+                    }
+                    else
+                    {
+                        it->nackSeen = true;
+                    }
+                }
+                else if (!harqInfo.IsReceivedOk())
+                {
+                    PendingOwnRelay p = *it;
+                    m_pendingOwnRelays.erase(it);
+                    SelectOwnRelayResources(p);
+                    break;
+                }
+            }
+        }
+        // feedback on a relayed copy carries the original TX's HARQ id: it is
+        // not about this UE's own HARQ processes
+        if (harqInfo.m_txRnti == GetRnti())
+        {
+            auto key = std::make_pair(harqInfo.m_dstL2Id, harqInfo.m_harqProcessId);
+            auto itKey = m_relayFbKeys.find(key);
+            if (itKey != m_relayFbKeys.end())
+            {
+                if (itKey->second >= Simulator::Now())
+                {
+                    return;
+                }
+                m_relayFbKeys.erase(itKey);
+            }
+        }
+    }
     if (harqInfo.m_txRnti == GetRnti() && harqInfo.m_bwpIndex == GetBwpId())
     {
         // This HARQ is for us.  If this is a HARQ ACK, check whether to cancel

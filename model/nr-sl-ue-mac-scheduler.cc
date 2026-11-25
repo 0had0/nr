@@ -36,7 +36,17 @@ NrSlUeMacScheduler::GetTypeId()
             .AddTraceSource("GrantPublished",
                             "Trace the publishing of a grant to the NrSlUeMac",
                             MakeTraceSourceAccessor(&NrSlUeMacScheduler::m_grantPublishedTrace),
-                            "ns3::NrSlUeMacScheduler::GrantPublishedCallback");
+                            "ns3::NrSlUeMacScheduler::GrantPublishedCallback")
+            .AddTraceSource("SpsMisfit",
+                            "An RLC SDU not accommodated by the selected SPS grant "
+                            "(NrSlUeMac::SpsReselectOnMisfit)",
+                            MakeTraceSourceAccessor(&NrSlUeMacScheduler::m_spsMisfitTrace),
+                            "ns3::NrSlUeMacScheduler::SpsMisfitTracedCallback")
+            .AddTraceSource("SpsResourceKept",
+                            "An SPS resource kept at reselection-counter expiry "
+                            "(sl-ProbResourceKeep)",
+                            MakeTraceSourceAccessor(&NrSlUeMacScheduler::m_spsKeptTrace),
+                            "ns3::NrSlUeMacScheduler::SpsKeptTracedCallback");
     return tid;
 }
 
@@ -128,6 +138,23 @@ void
 NrSlUeMacScheduler::NotifyGrantPublished(const struct NrSlUeMac::NrSlGrant& grant) const
 {
     m_grantPublishedTrace(grant, m_ueMac->GetPsfchPeriod());
+}
+
+void
+NrSlUeMacScheduler::NotifySpsKept(uint32_t dstL2Id, uint8_t counter) const
+{
+    m_spsKeptTrace(dstL2Id, counter);
+}
+
+void
+NrSlUeMacScheduler::NotifySpsMisfit(uint32_t dstL2Id,
+                                    uint8_t lcId,
+                                    uint32_t bufferSize,
+                                    uint32_t allocated,
+                                    uint32_t capacity,
+                                    bool reselected) const
+{
+    m_spsMisfitTrace(dstL2Id, lcId, bufferSize, allocated, capacity, reselected);
 }
 
 } // namespace ns3

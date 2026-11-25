@@ -25,11 +25,15 @@
 #include <ns3/traced-value.h>
 
 #include <functional>
+#include <map>
+#include <set>
+#include <string>
 
 namespace ns3
 {
 
 class UniformPlanarArray;
+class NrSlSciF2aHeader;
 
 /**
  * \ingroup ue-phy
@@ -414,6 +418,12 @@ class NrSpectrumPhy : public SpectrumPhy
      * \param [in] bwpId BWP ID
      * \param [in] cellId Cell ID
      */
+    /**
+     * \brief TracedCallback signature of SlPsfchRx: sender node id, outcome (0 delivered, 1 lost
+     *        forced, 2 lost SNR, 3 NACK detected as ACK), the feedback as sent, SNR-mode error rate
+     */
+    typedef void (*SlPsfchRxTracedCallback)(uint32_t, uint8_t, const SlHarqInfo&, double);
+
     typedef void (*RxDataTracedCallback)(const SfnSf& sfnSf,
                                          Ptr<const SpectrumValue> v,
                                          const Time& t,
@@ -965,10 +975,35 @@ class NrSpectrumPhy : public SpectrumPhy
      */
     void RxSlPssch(std::vector<uint32_t> paramIndexes);
     /**
+     * \brief 3GPP NDI rule (TS 38.321 5.22.2.2): after a decoded SCI-2A, compare its NDI bit
+     *        with the one stored for the HARQ process; a different (or no) stored bit means a
+     *        new TB and the bit is stored. If the "new data" flag is 0 (the TB's first
+     *        transmission was missed), the process's "decoded" mark and soft buffer are flushed
+     *        here; with the flag 1 the caller's NDI reset does it.
+     * \param harqRnti owner of the HARQ process (relayedFromRnti for a relayed copy)
+     * \param sci the decoded SCI-2A
+     * \return true if the reception starts a new TB of the process
+     */
+    bool SlNdiNewTb(uint16_t harqRnti, const NrSlSciF2aHeader& sci);
+    /**
+     * \brief Test hook SlTestDropSci: whether this expected PSSCH reception is ignored
+     * \param tb the expected TB (transmitter RNTI, TB info)
+     * \return true if the reception must be ignored (SCI_DROPPED traced)
+     */
+    bool TestDropSci(const std::pair<const uint16_t, TransportBlockInfo>& tb);
+    /**
      * \brief Function to process received PSFCH signals/messages function
      * \param paramIndexes Indexes of received PSFCH signals/messages parameters
      */
     void RxSlPsfch(std::vector<uint32_t> paramIndexes);
+    /**
+     * \brief SlPsfchErrorMode 2: error rate of the PSFCH signal pktIndex decoded like a PSCCH of
+     *        the same link on its received PSD over noise (see attribute SlPsfchErrorMode)
+     * \param pktIndex index of the PSFCH signal in m_slRxSigParamInfo
+     * \param nFb simultaneous PSFCH transmissions of the sender (power split)
+     * \return the error rate
+     */
+    double PsfchSnrErrorRate(uint32_t pktIndex, size_t nFb);
     /**
      * \brief Get SINR stats function
      *
@@ -996,6 +1031,45 @@ class NrSpectrumPhy : public SpectrumPhy
         m_slRxSigParamInfo; //!< NR Sidelink received signal parameter info
     bool m_dropTbOnRbCollisionEnabled{
         false}; //!< when true, drop all receptions on colliding RBs regardless SINR value.
+    bool m_slAckPrevDecodedTb{false}; //!< when true, a retransmission of an already decoded
+                                      //!< TB with HARQ feedback enabled is ACKed (TS 38.321
+                                      //!< 5.22.2.2); false keeps it silent (5G-LENA default)
+    bool m_slSoftCombining{true};      //!< soft-combine every retransmission (HARQ-IR)
+    double m_slHelperMissProb{0.0};    //!< controlled experiment: the named helper misses the
+                                       //!< source's first copy of a TB with this probability
+    uint8_t m_slHelperMissMode{0};     //!< 0: SCI-2A decoded, TB failed (NACK, not stored);
+                                       //!< 1: SCI-2A failed (silent)
+    Ptr<UniformRandomVariable> m_slHelperMissRv{nullptr}; //!< own stream, created on first use
+    uint8_t m_slPsfchErrorMode{0};     //!< PSFCH reception errors: 0 none (stock, error-free),
+                                       //!< 1 forced (SlPsfchMissProb), 2 SNR with the PSCCH error model
+    double m_slPsfchMissProb{0.0};     //!< mode 1: a received ACK/NACK is lost (read as DTX)
+    double m_slPsfchNackToAckProb{0.0}; //!< modes 1, 2: a received NACK is detected as ACK
+    uint16_t m_slPsfchEmRbs{1};        //!< mode 2: PRBs of the PSCCH-like decoding (1 = format 0)
+    double m_slPsfchTxPowerDbm{23.0}; //!< mode 2: PSFCH power before the N_Tx,PSFCH split (P_CMAX)
+    double m_slPsfchSnrOffsetDb{0.0};  //!< mode 2: offset added to the PSFCH SNR (power assumptions)
+    Ptr<UniformRandomVariable> m_slPsfchRv{nullptr}; //!< own stream, created on first use
+    Ptr<const SpectrumValue> m_slNoisePsd{nullptr};  //!< noise PSD (PSFCH SNR)
+    /// every PSFCH feedback reaching this PHY: sender node id, outcome (0 delivered, 1 lost forced,
+    /// 2 lost SNR, 3 NACK detected as ACK), the feedback as sent, and the mode-2 error rate
+    TracedCallback<uint32_t, uint8_t, const SlHarqInfo&, double> m_slPsfchRxTrace;
+    bool m_slBlindSoftCombining{true}; //!< soft-combine copies sent with HARQ feedback
+                                       //!< disabled; false decodes each copy on its own
+    std::string m_slTestFixedSinr;     //!< test hook "rxNode:txNode=dB;...": PSSCH SINR of
+                                       //!< those links fixed on every RB ("" = off)
+    std::map<std::pair<uint32_t, uint32_t>, double>
+        m_slTestFixedSinrMap; //!< parsed m_slTestFixedSinr: (rx node, tx node) -> linear SINR
+    bool m_slTestFixedSinrParsed{false}; //!< m_slTestFixedSinrMap built
+    std::string m_slTestDropSci; //!< test hook "rxNode:txNode:k[,k...];...": the k-th expected
+                                 //!< PSSCH reception from txNode is ignored at rxNode ("" = off)
+    std::map<std::pair<uint32_t, uint32_t>, std::set<uint32_t>>
+        m_slTestDropSciMap; //!< parsed m_slTestDropSci: (rx node, tx node) -> receptions to drop
+    std::map<std::pair<uint32_t, uint32_t>, uint32_t>
+        m_slTestDropSciCount;           //!< PSSCH receptions so far per (rx node, tx node)
+    bool m_slTestDropSciParsed{false}; //!< m_slTestDropSciMap built
+    std::map<std::pair<uint16_t, uint8_t>, uint8_t>
+        m_slNdiBit; //!< last SCI-2A NDI bit per HARQ process (HARQ owner RNTI, HARQ id)
+    TracedCallback<const SlHarqCombineTraceParams&>
+        m_slHarqCombineTrace; //!< HARQ soft-buffer events (validation; no sink = no cost)
     bool m_slDataErrorModelEnabled{true}; //!< whether the phy error model for NR Sidelink DATA is
                                           //!< enabled, by default is enabled
     bool m_slCtrlErrorModelEnabled{true}; //!< whether the phy error model for NR Sidelink CTRL is
@@ -1019,10 +1093,16 @@ class NrSpectrumPhy : public SpectrumPhy
 
     TracedCallback<SlRxCtrlPacketTraceParams>
         m_rxPscchTraceUe; //!< trace source for PSCCH reception
+    /// every sidelink signal reaching this PHY (any state): transmitter node id, kind
+    /// (0 PSCCH, 1 PSSCH, 2 PSFCH) and received PSD (validation: SL-RSSI at the source)
+    TracedCallback<uint32_t, uint8_t, Ptr<const SpectrumValue>> m_slRxSignalTrace;
     TracedCallback<SlRxDataPacketTraceParams>
         m_rxPsschTraceUe;                          //!< trace source for PSSCH reception
     TracedValue<uint64_t> m_slPscchDecodeFailures; //!< Count of observed PSCCH decode failures
     TracedValue<uint64_t> m_slSci2aDecodeFailures; //!< Count of observed SCI 2a decode failures
+    TracedValue<uint64_t> m_slHelperForcedMiss; //!< first copies the named helper was forced to miss
+    TracedValue<uint64_t> m_slNdiToggleNewTb; //!< receptions whose toggled NDI bit revealed a
+                                              //!< new TB while the "new data" flag was 0
     TracedValue<uint64_t> m_slTbDecodeFailures;    //!< Count of observed TB decode failures
 };
 
