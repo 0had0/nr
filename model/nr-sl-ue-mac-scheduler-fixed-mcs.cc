@@ -556,6 +556,15 @@ NrSlUeMacSchedulerFixedMcs::TxResourceReselectionCheck(const SfnSf& sfn,
                 {
                     NS_LOG_DEBUG("slResoReselCounter != 0");
                 }
+                if (!pass && GetMac()->GetSpsReselectOnMisfit())
+                {
+                    pass = SpsMisfitCheck(sfn,
+                                          dstL2Id,
+                                          lcId,
+                                          lcBufferSize,
+                                          itGrantInfo->second,
+                                          itGrantFoundLc);
+                }
             }
         }
     }
@@ -565,6 +574,131 @@ NrSlUeMacSchedulerFixedMcs::TxResourceReselectionCheck(const SfnSf& sfn,
     }
 
     return pass;
+}
+
+bool
+NrSlUeMacSchedulerFixedMcs::KeepSpsResource(const SfnSf& sfn,
+                       GrantInfo& grant,
+                       const NrSlUeMac::NrSlGrant& published)
+{
+    const double keep = GetMac()->GetSlProbResourceKeep();
+    // no draw at all with sl-ProbResourceKeep = 0 (stock random streams)
+    if (keep <= 0.0 || grant.prevSlResoReselCounter == 0 || grant.cReselCounter <= 1)
+    {
+        return false;
+    }
+    if (!(keep > m_ueSelectedUniformVariable->GetValue(0, 1)))
+    {
+        return false;
+    }
+    --grant.cReselCounter; // the period just published
+    grant.slResoReselCounter = grant.prevSlResoReselCounter;
+    const uint16_t resPeriodSlots = GetMac()->GetResvPeriodInSlots(grant.rri);
+    for (uint16_t i = 1; i <= grant.slResoReselCounter; i++)
+    {
+        for (const auto& it : published.slotAllocations)
+        {
+            auto slAlloc = it;
+            slAlloc.sfn.Add(i * resPeriodSlots);
+            slAlloc.slHasPsfch = GetMac()->SlotHasPsfch(slAlloc.sfn);
+            slAlloc.slPsschSymLength = slAlloc.slHasPsfch ? 9 : 12;
+            grant.slotAllocations.emplace(slAlloc);
+        }
+    }
+    // counted from the publication of the last period, 2 slots before its new
+    // transmission: one more period than at the selection, so the kept cycle's
+    // last retransmission is used before the HARQ process times out
+    GetMacHarq()->RenewHarqProcessIdTimer(
+        grant.harqId,
+        GetSpsGrantTimeout(sfn, grant.slResoReselCounter + 1, grant.rri));
+    NS_LOG_INFO("SPS resource to " << published.slotAllocations.begin()->dstL2Id
+                                   << " kept for " << +grant.slResoReselCounter << " periods");
+    NotifySpsKept(published.slotAllocations.begin()->dstL2Id, grant.slResoReselCounter);
+    return true;
+}
+
+bool
+NrSlUeMacSchedulerFixedMcs::SpsMisfitCheck(const SfnSf& sfn,
+                                           uint32_t dstL2Id,
+                                           uint8_t lcId,
+                                           uint32_t lcBufferSize,
+                                           std::vector<GrantInfo>& grants,
+                                           std::vector<GrantInfo>::iterator itGrant)
+{
+    NS_LOG_FUNCTION(this << sfn << dstL2Id << +lcId << lcBufferSize);
+    if (itGrant->slotAllocations.empty())
+    {
+        return false;
+    }
+    const SlGrantResource& first = *itGrant->slotAllocations.begin();
+    uint32_t allocated = 0;
+    uint32_t allocatedOthers = 0;
+    for (const auto& r : first.slRlcPduInfo)
+    {
+        (r.lcid == lcId ? allocated : allocatedOthers) += r.size;
+    }
+    if (lcBufferSize <= allocated)
+    {
+        return false;
+    }
+    // TB of the grant at the configured MCS, same sizing as at the selection
+    // (9 PSSCH symbols, 5 bytes of SCI-2A)
+    const auto itDstInfo = m_dstMap.find(dstL2Id);
+    uint32_t capacity = CalculateTbSize(GetAmc(),
+                                        itDstInfo->second->GetDstMcs(),
+                                        9,
+                                        first.slPsschSubChLength,
+                                        GetMac()->GetNrSlSubChSize());
+    capacity = capacity > 5 ? capacity - 5 : 0;
+    const uint32_t room = capacity > allocatedOthers ? capacity - allocatedOthers : 0;
+    if (lcBufferSize <= room)
+    {
+        // the grant accommodates the SDU: allocate it whole instead of a segment
+        std::set<SlGrantResource> updated;
+        for (auto slot : itGrant->slotAllocations)
+        {
+            for (auto& r : slot.slRlcPduInfo)
+            {
+                if (r.lcid == lcId)
+                {
+                    r.size = lcBufferSize;
+                }
+            }
+            updated.insert(slot);
+        }
+        itGrant->slotAllocations = updated;
+        NS_LOG_INFO("SPS grant to " << dstL2Id << " LC " << +lcId << " enlarged from "
+                                    << allocated << " to " << lcBufferSize << " bytes");
+        NotifySpsMisfit(dstL2Id, lcId, lcBufferSize, allocated, capacity, false);
+        return false;
+    }
+    NS_LOG_INFO("SPS grant to " << dstL2Id << " LC " << +lcId << " (TB " << capacity
+                                << " bytes) cannot carry " << lcBufferSize
+                                << " bytes: resource reselection");
+    NotifySpsMisfit(dstL2Id, lcId, lcBufferSize, allocated, capacity, true);
+    const uint8_t harqId = itGrant->harqId;
+    grants.erase(itGrant);
+    // the HARQ process may still be in use by the slots already published to the
+    // MAC (retransmissions of the previous TB): release it after them
+    SfnSf last;
+    if (GetMac()->GetSlGrantLastSlot(dstL2Id, harqId, last) && sfn <= last)
+    {
+        SfnSf end = last;
+        end.Add(1);
+        for (uint16_t k = 0; GetMac()->GetPsfchPeriod() && k < 64 && !GetMac()->SlotHasPsfch(end);
+             ++k)
+        {
+            end.Add(1);
+        }
+        const auto timePerSlot = MicroSeconds(1000 >> sfn.GetNumerology());
+        const auto timeout = timePerSlot * (end.Normalize() + 2 - sfn.Normalize());
+        GetMacHarq()->RenewHarqProcessIdTimer(harqId, timeout);
+    }
+    else
+    {
+        GetMacHarq()->DeallocateHarqProcessId(harqId);
+    }
+    return true;
 }
 
 uint32_t
@@ -1423,7 +1557,12 @@ NrSlUeMacSchedulerFixedMcs::CheckForGrantsToPublish(const SfnSf& sfn)
             NS_LOG_INFO("Publishing grant with " << grant.slotAllocations.size()
                                                  << " slots to destination " << currentSlot.dstL2Id
                                                  << " HARQ ID " << +grant.harqId);
-            if (itGrantVector->isDynamic || !itGrantVector->slotAllocations.size())
+            if (!itGrantVector->isDynamic && itGrantVector->slotAllocations.empty() &&
+                KeepSpsResource(sfn, *itGrantVector, grant))
+            {
+                ++itGrantVector;
+            }
+            else if (itGrantVector->isDynamic || !itGrantVector->slotAllocations.size())
             {
                 itGrantVector = itGrantInfo->second.erase(itGrantVector);
             }
@@ -1687,8 +1826,10 @@ NrSlUeMacSchedulerFixedMcs::DoNrSlAllocation(
                   "Scheduler received an empty resource list from UE MAC");
 
     std::list<SlResourceInfo> selectedTxOpps;
-    // blind retransmission corresponds to HARQ enabled AND (PSFCH period == 0)
-    if (allocationInfo.m_harqEnabled && (GetMac()->GetPsfchPeriod() == 0))
+    // blind retransmission corresponds to HARQ disabled with maxNumTx > 1 OR (HARQ enabled AND PSFCH period == 0)
+    const bool isBlind = (!allocationInfo.m_harqEnabled && GetSlMaxTxTransNumPssch() > 1) ||
+                         (allocationInfo.m_harqEnabled && (GetMac()->GetPsfchPeriod() == 0));
+    if (isBlind)
     {
         // Select up to N_PSSCH_maxTx resources without regard MinTimeGapPsfch
         // i.e., for blind retransmissions

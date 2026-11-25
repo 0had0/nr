@@ -55,6 +55,15 @@ NrSlUeMac::GetTypeId()
         TypeId("ns3::NrSlUeMac")
             .SetParent<NrUeMac>()
             .AddConstructor<NrSlUeMac>()
+            .AddAttribute("SpsReselectOnMisfit",
+                          "SPS (TS 38.321 sec. 5.22.1.1): when an RLC SDU cannot be "
+                          "accommodated by the selected SPS grant at the configured MCS, the "
+                          "scheduler triggers a resource reselection sized for the new data "
+                          "instead of segmenting the SDU across reservation periods. False: "
+                          "stock behaviour (the grant keeps the size of its first SDU)",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&NrSlUeMac::m_spsReselectOnMisfit),
+                          MakeBooleanChecker())
             .AddAttribute("EnableSensing",
                           "Flag to enable NR Sidelink resource selection based on sensing; "
                           "otherwise, use random selection",
@@ -1735,6 +1744,36 @@ NrSlUeMac::EnableSensing(bool enableSensing)
     NS_ASSERT_MSG(m_enableSensing == false,
                   " Once the sensing is enabled, it can not be enabled or disabled again");
     m_enableSensing = enableSensing;
+}
+
+bool
+NrSlUeMac::GetSpsReselectOnMisfit() const
+{
+    return m_spsReselectOnMisfit;
+}
+
+bool
+NrSlUeMac::GetSlGrantLastSlot(uint32_t dstL2Id, uint8_t harqId, SfnSf& last) const
+{
+    bool found = false;
+    auto itGrants = m_slGrants.find(dstL2Id);
+    if (itGrants == m_slGrants.end())
+    {
+        return false;
+    }
+    for (const auto& grant : itGrants->second)
+    {
+        if (grant.harqId == harqId && !grant.slotAllocations.empty())
+        {
+            const SfnSf s = grant.slotAllocations.rbegin()->sfn;
+            if (!found || last < s)
+            {
+                last = s;
+            }
+            found = true;
+        }
+    }
+    return found;
 }
 
 void

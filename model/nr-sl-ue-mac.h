@@ -350,6 +350,24 @@ class NrSlUeMac : public NrUeMac
     bool SlotHasPsfch(const SfnSf& sfn) const;
 
     /**
+     * \brief Whether an SPS grant whose RLC SDU does not fit triggers a resource
+     *        reselection (TS 38.321 sec. 5.22.1.1) instead of segmentation
+     *        (attribute SpsReselectOnMisfit; read by the schedulers)
+     *
+     * \return true if the reselection on misfit is enabled
+     */
+    bool GetSpsReselectOnMisfit() const;
+    /**
+     * \brief Last slot of the published grants to dstL2Id on harqId
+     *
+     * \param dstL2Id The destination layer 2 id
+     * \param harqId The HARQ process id
+     * \param last Set to the last remaining slot, if any
+     * \return true if a published grant with remaining slots exists
+     */
+    bool GetSlGrantLastSlot(uint32_t dstL2Id, uint8_t harqId, SfnSf& last) const;
+
+    /**
      * \brief Get the reservation period in slots
      *
      * Wrapper method that calls NrSlCommResourcePool::GetResvPeriodInSlots
@@ -808,6 +826,7 @@ class NrSlUeMac : public NrUeMac
     std::unordered_set<uint32_t>
         m_sidelinkRxDestinations; //!< vector holding Sidelink communication destinations for
                                   //!< reception
+    bool m_spsReselectOnMisfit{false}; //!< SPS: reselect when an RLC SDU does not fit
     bool m_enableSensing{false};  //!< Flag to enable NR Sidelink resource selection based on
                                   //!< sensing; otherwise, use random selection
     uint8_t m_minTimeGapProcessing{
