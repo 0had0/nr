@@ -1044,6 +1044,9 @@ class NrSpectrumPhy : public SpectrumPhy
 
     TracedCallback<SlRxCtrlPacketTraceParams>
         m_rxPscchTraceUe; //!< trace source for PSCCH reception
+    /// every sidelink signal reaching this PHY (any state): transmitter node id, kind
+    /// (0 PSCCH, 1 PSSCH, 2 PSFCH) and received PSD (validation: SL-RSSI at the source)
+    TracedCallback<uint32_t, uint8_t, Ptr<const SpectrumValue>> m_slRxSignalTrace;
     TracedCallback<SlRxDataPacketTraceParams>
         m_rxPsschTraceUe;                          //!< trace source for PSSCH reception
     TracedValue<uint64_t> m_slPscchDecodeFailures; //!< Count of observed PSCCH decode failures

@@ -272,6 +272,11 @@ NrSpectrumPhy::GetTypeId()
                             "Pathloss calculated for CTRL",
                             MakeTraceSourceAccessor(&NrSpectrumPhy::m_dlDataPathlossTrace),
                             "ns3::NrSpectrumPhy::DlPathlossTrace")
+            .AddTraceSource("SlRxSignal",
+                            "Every sidelink signal reaching this PHY: transmitter node id, kind "
+                            "(0 PSCCH, 1 PSSCH, 2 PSFCH) and received PSD",
+                            MakeTraceSourceAccessor(&NrSpectrumPhy::m_slRxSignalTrace),
+                            "ns3::NrSpectrumPhy::SlRxSignalTracedCallback")
             .AddTraceSource("RxPscchTraceUe",
                             "The PSCCH transmission received by the User Device",
                             MakeTraceSourceAccessor(&NrSpectrumPhy::m_rxPscchTraceUe),
@@ -556,6 +561,13 @@ NrSpectrumPhy::StartRx(Ptr<SpectrumSignalParameters> params)
 
     // pass it to Sidelink interference calculations regardless of the type (SL or non-Sl)
     m_slInterference->AddSignal(params->psd, params->duration);
+    if (nrSlRxParams && !m_slRxSignalTrace.IsEmpty())
+    {
+        const uint8_t kind =
+            nrSlRxFbParams ? 2
+                           : (DynamicCast<NrSpectrumSignalParametersSlCtrlFrame>(params) ? 0 : 1);
+        m_slRxSignalTrace(nrSlRxParams->nodeId, kind, params->psd);
+    }
     if (nrDataRxParams)
     {
         if (nrDataRxParams->cellId == GetCellId())
