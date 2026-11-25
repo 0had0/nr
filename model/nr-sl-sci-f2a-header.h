@@ -76,6 +76,21 @@ class NrSlSciF2aHeader : public NrSlSciF2Header
      * \param csiReq The channel state information request flag
      */
     void SetCsiReq(uint8_t csiReq);
+    /**
+     * \brief Set the 3GPP new data indicator bit (TS 38.212 8.4.1.1): toggled by the
+     *        transmitter at each new TB of the HARQ process. GetNdi() is the simulator's
+     *        "new data" flag (1 on the first transmission of a TB only).
+     *
+     * \param ndiBit The NDI bit (0 or 1)
+     */
+    void SetNdiBit(uint8_t ndiBit);
+
+    /**
+     * \brief Size of the SCI-2A on the air (stage-2 format 2A fields only),
+     * used by the PHY error model; excludes the simulation side information.
+     */
+    uint32_t GetAirSize() const;
+
 
     /**
      * \brief Get the HARQ feedback enabled/disabled indicator field value
@@ -95,6 +110,12 @@ class NrSlSciF2aHeader : public NrSlSciF2Header
      * \return The channel state information request flag
      */
     uint8_t GetCsiReq() const;
+    /**
+     * \brief Get the 3GPP new data indicator bit (toggled per new TB of the HARQ process)
+     *
+     * \return The NDI bit
+     */
+    uint8_t GetNdiBit() const;
 
     /**
      * \brief Equality operator
@@ -119,6 +140,7 @@ class NrSlSciF2aHeader : public NrSlSciF2Header
     uint8_t m_harqFeedbackIndicator{Disabled}; //!< Whether HARQ feedback is enabled or disabled
     uint8_t m_castType{Broadcast}; //!< The type of communication this NrSlSciF2aHeader is used for
     uint8_t m_csiReq{0};           //!< The channel state information request flag
+    uint8_t m_ndiBit{0};           //!< 3GPP NDI bit, toggled per new TB of the HARQ process
 
     static std::vector<CastTypeIndicator_t>
         m_allowedCastType; //!< Vector of allowed Stage 2 SCI formats, to speed up checking
