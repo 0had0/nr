@@ -29,7 +29,8 @@ NrSlSciF2aHeader::~NrSlSciF2aHeader()
  */
 std::vector<NrSlSciF2aHeader::CastTypeIndicator_t> NrSlSciF2aHeader::m_allowedCastType = {Broadcast,
                                                                                           Groupcast,
-                                                                                          Unicast};
+                                                                                          Unicast,
+                                                                                          GroupcastOnlyNack};
 
 TypeId
 NrSlSciF2aHeader::GetTypeId()
@@ -85,19 +86,37 @@ NrSlSciF2aHeader::GetCsiReq() const
 }
 
 void
+NrSlSciF2aHeader::SetNdiBit(uint8_t ndiBit)
+{
+    m_ndiBit = ndiBit & 0x1;
+}
+
+uint8_t
+NrSlSciF2aHeader::GetNdiBit() const
+{
+    return m_ndiBit;
+}
+
+void
 NrSlSciF2aHeader::Print(std::ostream& os) const
 {
     NS_LOG_FUNCTION(this);
     NrSlSciF2Header::Print(os);
     os << ", HARQ feedback enabled/disabled indicator " << +m_harqFeedbackIndicator
        << ", Cast type indicator " << +m_castType << ", Channel state information request "
-       << +m_csiReq;
+       << +m_csiReq << ", NDI bit " << +m_ndiBit;
+}
+
+uint32_t
+NrSlSciF2aHeader::GetAirSize() const
+{
+    return NrSlSciF2Header::GetSerializedSize() + 1;
 }
 
 uint32_t
 NrSlSciF2aHeader::GetSerializedSize() const
 {
-    return NrSlSciF2Header::GetSerializedSize() + 1;
+    return GetAirSize();
 }
 
 void
@@ -113,8 +132,9 @@ NrSlSciF2aHeader::Serialize(Buffer::Iterator start) const
     scif02a = (m_castType & 0x3) | (scif02a << 2);
     scif02a = (m_csiReq & 0x1) | (scif02a << 1);
 
-    // now 4 bits of padding
-    uint8_t padding = 0;
+    // now 4 bits of padding; one carries the 3GPP NDI bit (1 bit of the real
+    // SCI-2A: the air size is unchanged)
+    uint8_t padding = (m_ndiBit & 0x1) << 1;
     scif02a = (padding & 0x0F) | (scif02a << 4);
     i.WriteU8(scif02a);
 }
@@ -131,6 +151,7 @@ NrSlSciF2aHeader::Deserialize(Buffer::Iterator start)
     m_harqFeedbackIndicator = (scif02a >> 7) & 0x1;
     m_castType = (scif02a >> 5) & 0x3;
     m_csiReq = (scif02a >> 4) & 0x1;
+    m_ndiBit = (scif02a >> 1) & 0x1;
 
     return GetSerializedSize();
 }
@@ -140,7 +161,7 @@ NrSlSciF2aHeader::operator==(const NrSlSciF2aHeader& b) const
 {
     return m_harqId == b.m_harqId && m_ndi == b.m_ndi && m_rv == b.m_rv && m_srcId == b.m_srcId &&
            m_dstId == b.m_dstId && m_csiReq == b.m_csiReq && m_castType == b.m_castType &&
-           m_harqFeedbackIndicator == b.m_harqFeedbackIndicator;
+           m_harqFeedbackIndicator == b.m_harqFeedbackIndicator && m_ndiBit == b.m_ndiBit;
 }
 
 } // namespace ns3
