@@ -350,6 +350,14 @@ class NrSlUeMac : public NrUeMac
     bool SlotHasPsfch(const SfnSf& sfn) const;
 
     /**
+     * \brief Whether an SPS grant whose RLC SDU does not fit triggers a resource
+     *        reselection (TS 38.321 sec. 5.22.1.1) instead of segmentation
+     *        (attribute SpsReselectOnMisfit; read by the schedulers)
+     *
+     * \return true if the reselection on misfit is enabled
+     */
+    bool GetSpsReselectOnMisfit() const;
+    /**
      * \brief Last slot of the published grants to dstL2Id on harqId
      *
      * \param dstL2Id The destination layer 2 id
@@ -822,6 +830,7 @@ class NrSlUeMac : public NrUeMac
 
     bool m_slProjectAnnounced{false};  //!< sensing: project the retransmissions announced in
                                        //!< the current period (and by dynamic grants)
+    bool m_spsReselectOnMisfit{false}; //!< SPS: reselect when an RLC SDU does not fit
     bool m_enableSensing{false};  //!< Flag to enable NR Sidelink resource selection based on
                                   //!< sensing; otherwise, use random selection
     uint8_t m_minTimeGapProcessing{

@@ -101,6 +101,29 @@ class NrSlUeMacSchedulerFixedMcs : public NrSlUeMacScheduler
                          const NrSlUeMac::NrSlGrant& published);
 
     /**
+     * \brief SPS grant vs the LC's pending data (NrSlUeMac::SpsReselectOnMisfit,
+     *        TS 38.321 sec. 5.22.1.1): if the data exceeds what the grant allocates
+     *        to the LC but fits its TB at the configured MCS, the allocation is
+     *        enlarged; if it exceeds the TB, the grant is cleared so that a new one
+     *        is selected for the data (the HARQ process is kept until the slots
+     *        already published to the MAC are used)
+     *
+     * \param sfn The SfnSf
+     * \param dstL2Id The destination layer 2 ID
+     * \param lcId The logical channel ID
+     * \param lcBufferSize The LC buffer size
+     * \param grants The grants of the destination
+     * \param itGrant The SPS grant of the LC
+     * \return True if the grant was cleared (the LC passes the reselection check)
+     */
+
+    bool SpsMisfitCheck(const SfnSf& sfn,
+                        uint32_t dstL2Id,
+                        uint8_t lcId,
+                        uint32_t lcBufferSize,
+                        std::vector<GrantInfo>& grants,
+                        std::vector<GrantInfo>::iterator itGrant);
+    /**
      * \brief Select the destinations and logical channels that need scheduling
      *
      * The function fills the dstsAndLcsToSched map with the destinations and logical channels that
