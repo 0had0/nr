@@ -55,6 +55,25 @@ NrSlUeMac::GetTypeId()
         TypeId("ns3::NrSlUeMac")
             .SetParent<NrUeMac>()
             .AddConstructor<NrSlUeMac>()
+            .AddAttribute("SlDynExclusion",
+                          "Sensing (TS 38.214 sec. 8.1.4 step 6) for a selection without a "
+                          "resource reservation interval (dynamic grant): check the candidate "
+                          "itself against the sensed reservations (C_resel = 1). False: stock "
+                          "behaviour, the step-6 loop runs C_resel = 0 times and no candidate "
+                          "of a dynamic grant is excluded by sensing",
+                          BooleanValue(false),
+                          MakeBooleanAccessor(&NrSlUeMac::m_slDynExclusion),
+                          MakeBooleanChecker())
+                        .AddAttribute("SlProjectAnnounced",
+                                      "Sensing (TS 38.214 sec. 8.1.4 step 6): also project the "
+                                      "retransmission resources an SCI-1A announces in its own period "
+                                      "(TRIV gaps from the sensed slot), including those of SCIs without "
+                                      "a reservation period (dynamic grants). False: stock behaviour, "
+                                      "announced retransmissions are projected only into the next "
+                                      "reservation periods, never for a period of 0",
+                                      BooleanValue(false),
+                                      MakeBooleanAccessor(&NrSlUeMac::m_slProjectAnnounced),
+                                      MakeBooleanChecker())
             .AddAttribute("EnableSensing",
                           "Flag to enable NR Sidelink resource selection based on sensing; "
                           "otherwise, use random selection",
@@ -131,7 +150,11 @@ NrSlUeMac::GetTypeId()
             .AddTraceSource("SensingAlgorithm",
                             "Candidates selected by the mode 2 sensing algorithm",
                             MakeTraceSourceAccessor(&NrSlUeMac::m_tracedSensingAlgorithm),
-                            "ns3::NrSlUeMac::SensingAlgorithmTracedCallback");
+                            "ns3::NrSlUeMac::SensingAlgorithmTracedCallback")
+            .AddTraceSource("SensingDataRx",
+                            "An SCI-1A added to the sensing data of this UE",
+                            MakeTraceSourceAccessor(&NrSlUeMac::m_sensingDataRxTrace),
+                            "ns3::NrSlUeMac::SensingDataRxTracedCallback");
     return tid;
 }
 
@@ -560,7 +583,11 @@ NrSlUeMac::GetCandidateResourcesPrivate(const SfnSf& sfn,
             std::list<SlResourceInfo> resourceInfoList;
             uint16_t pPrimeRsvpTx =
                 txPool->GetResvPeriodInSlots(bwpId, poolId, params.m_pRsvpTx, slotPeriod);
-            for (uint16_t i = 0; i < params.m_cResel; i++)
+            // TS 38.214 sec. 8.1.4: C_resel = 1 when no reservation interval is
+            // provided; stock 5G-LENA passes 0 for a dynamic grant (no exclusion)
+            const uint16_t nCandPeriods =
+                (m_slDynExclusion && params.m_cResel == 0) ? 1 : params.m_cResel;
+            for (uint16_t i = 0; i < nCandPeriods; i++)
             {
                 auto slResourceInfo = *itCandidate;
                 slResourceInfo.sfn.Add(i * pPrimeRsvpTx);
@@ -613,6 +640,10 @@ NrSlUeMac::GetCandidateResourcesPrivate(const SfnSf& sfn,
                                 }
                             }
                         }
+                    }
+                    if (erased)
+                    {
+                        break; // break for itFutureCand
                     }
                 }
                 if (erased)
@@ -783,6 +814,35 @@ NrSlUeMac::ExcludeReservedResources(SensingData sensedData,
     }
     uint16_t pPrimeRsvpRx = resvPeriodSlots;
 
+    if (m_slProjectAnnounced)
+    {
+        // retransmissions announced by the sensed SCI-1A in its own period (the
+        // TRIV gaps count from the sensed slot); for a sensed SCI without a
+        // reservation period (dynamic grant) these are its only reservations
+        if (sensedData.gapReTx1 != std::numeric_limits<uint8_t>::max())
+        {
+            ReservedResource reTx1Slot(sensedData.sfn,
+                                       sensedData.rsvp,
+                                       sensedData.sbChLength,
+                                       sensedData.sbChStartReTx1,
+                                       sensedData.prio,
+                                       sensedData.slRsrp);
+            reTx1Slot.sfn = sensedData.sfn.GetFutureSfnSf(sensedData.gapReTx1);
+            resourceList.emplace_back(reTx1Slot);
+        }
+        if (sensedData.gapReTx2 != std::numeric_limits<uint8_t>::max())
+        {
+            ReservedResource reTx2Slot(sensedData.sfn,
+                                       sensedData.rsvp,
+                                       sensedData.sbChLength,
+                                       sensedData.sbChStartReTx2,
+                                       sensedData.prio,
+                                       sensedData.slRsrp);
+            reTx2Slot.sfn = sensedData.sfn.GetFutureSfnSf(sensedData.gapReTx2);
+            resourceList.emplace_back(reTx2Slot);
+        }
+    }
+
     for (uint16_t i = 1; i <= q; i++)
     {
         ReservedResource resource(sensedData.sfn,
@@ -890,6 +950,7 @@ NrSlUeMac::DoReceiveSensingData(SensingData sensingData)
     {
         // oldest data will be at the front of the queue
         m_sensingData.push_back(sensingData);
+        m_sensingDataRxTrace(sensingData);
     }
 }
 

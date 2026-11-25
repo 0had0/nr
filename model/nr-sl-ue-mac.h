@@ -808,6 +808,10 @@ class NrSlUeMac : public NrUeMac
     std::unordered_set<uint32_t>
         m_sidelinkRxDestinations; //!< vector holding Sidelink communication destinations for
                                   //!< reception
+    bool m_slDynExclusion{false};      //!< sensing: step 6 also for grants with P_rsvp_TX = 0
+
+    bool m_slProjectAnnounced{false};  //!< sensing: project the retransmissions announced in
+                                       //!< the current period (and by dynamic grants)
     bool m_enableSensing{false};  //!< Flag to enable NR Sidelink resource selection based on
                                   //!< sensing; otherwise, use random selection
     uint8_t m_minTimeGapProcessing{
@@ -870,6 +874,8 @@ class NrSlUeMac : public NrUeMac
                    const std::list<SensingData>&,
                    const std::list<SfnSf>&>
         m_tracedSensingAlgorithm;
+    /// every SCI-1A added to this UE's sensing data (trace "SensingDataRx")
+    TracedCallback<const SensingData&> m_sensingDataRxTrace;
 };
 
 /**
