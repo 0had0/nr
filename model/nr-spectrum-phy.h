@@ -414,6 +414,12 @@ class NrSpectrumPhy : public SpectrumPhy
      * \param [in] bwpId BWP ID
      * \param [in] cellId Cell ID
      */
+    /**
+     * \brief TracedCallback signature of SlPsfchRx: sender node id, outcome (0 delivered, 1 lost
+     *        forced, 2 lost SNR, 3 NACK detected as ACK), the feedback as sent, SNR-mode error rate
+     */
+    typedef void (*SlPsfchRxTracedCallback)(uint32_t, uint8_t, const SlHarqInfo&, double);
+
     typedef void (*RxDataTracedCallback)(const SfnSf& sfnSf,
                                          Ptr<const SpectrumValue> v,
                                          const Time& t,
@@ -970,6 +976,14 @@ class NrSpectrumPhy : public SpectrumPhy
      */
     void RxSlPsfch(std::vector<uint32_t> paramIndexes);
     /**
+     * \brief SlPsfchErrorMode 2: error rate of the PSFCH signal pktIndex decoded like a PSCCH of
+     *        the same link on its received PSD over noise (see attribute SlPsfchErrorMode)
+     * \param pktIndex index of the PSFCH signal in m_slRxSigParamInfo
+     * \param nFb simultaneous PSFCH transmissions of the sender (power split)
+     * \return the error rate
+     */
+    double PsfchSnrErrorRate(uint32_t pktIndex, size_t nFb);
+    /**
      * \brief Get SINR stats function
      *
      * This method computes an average SINR and a minimum SINR among the RBs in
@@ -996,6 +1010,17 @@ class NrSpectrumPhy : public SpectrumPhy
         m_slRxSigParamInfo; //!< NR Sidelink received signal parameter info
     bool m_dropTbOnRbCollisionEnabled{
         false}; //!< when true, drop all receptions on colliding RBs regardless SINR value.
+    uint8_t m_slPsfchErrorMode{0};     //!< PSFCH reception errors: 0 none (stock, error-free),
+    double m_slPsfchMissProb{0.0};     //!< mode 1: a received ACK/NACK is lost (read as DTX)
+    double m_slPsfchNackToAckProb{0.0}; //!< modes 1, 2: a received NACK is detected as ACK
+    uint16_t m_slPsfchEmRbs{1};        //!< mode 2: PRBs of the PSCCH-like decoding (1 = format 0)
+    double m_slPsfchTxPowerDbm{23.0}; //!< mode 2: PSFCH power before the N_Tx,PSFCH split (P_CMAX)
+    double m_slPsfchSnrOffsetDb{0.0};  //!< mode 2: offset added to the PSFCH SNR (power assumptions)
+    Ptr<UniformRandomVariable> m_slPsfchRv{nullptr}; //!< own stream, created on first use
+    Ptr<const SpectrumValue> m_slNoisePsd{nullptr};  //!< noise PSD (PSFCH SNR)
+    /// every PSFCH feedback reaching this PHY: sender node id, outcome (0 delivered, 1 lost forced,
+    /// 2 lost SNR, 3 NACK detected as ACK), the feedback as sent, and the mode-2 error rate
+    TracedCallback<uint32_t, uint8_t, const SlHarqInfo&, double> m_slPsfchRxTrace;
     bool m_slDataErrorModelEnabled{true}; //!< whether the phy error model for NR Sidelink DATA is
                                           //!< enabled, by default is enabled
     bool m_slCtrlErrorModelEnabled{true}; //!< whether the phy error model for NR Sidelink CTRL is
@@ -1019,6 +1044,9 @@ class NrSpectrumPhy : public SpectrumPhy
 
     TracedCallback<SlRxCtrlPacketTraceParams>
         m_rxPscchTraceUe; //!< trace source for PSCCH reception
+    /// every sidelink signal reaching this PHY (any state): transmitter node id, kind
+    /// (0 PSCCH, 1 PSSCH, 2 PSFCH) and received PSD (validation: SL-RSSI at the source)
+    TracedCallback<uint32_t, uint8_t, Ptr<const SpectrumValue>> m_slRxSignalTrace;
     TracedCallback<SlRxDataPacketTraceParams>
         m_rxPsschTraceUe;                          //!< trace source for PSSCH reception
     TracedValue<uint64_t> m_slPscchDecodeFailures; //!< Count of observed PSCCH decode failures
