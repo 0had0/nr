@@ -418,6 +418,12 @@ class NrSpectrumPhy : public SpectrumPhy
      * \param [in] bwpId BWP ID
      * \param [in] cellId Cell ID
      */
+    /**
+     * \brief TracedCallback signature of SlPsfchRx: sender node id, outcome (0 delivered, 1 lost
+     *        forced, 2 lost SNR, 3 NACK detected as ACK), the feedback as sent, SNR-mode error rate
+     */
+    typedef void (*SlPsfchRxTracedCallback)(uint32_t, uint8_t, const SlHarqInfo&, double);
+
     typedef void (*RxDataTracedCallback)(const SfnSf& sfnSf,
                                          Ptr<const SpectrumValue> v,
                                          const Time& t,
@@ -991,6 +997,14 @@ class NrSpectrumPhy : public SpectrumPhy
      */
     void RxSlPsfch(std::vector<uint32_t> paramIndexes);
     /**
+     * \brief SlPsfchErrorMode 2: error rate of the PSFCH signal pktIndex decoded like a PSCCH of
+     *        the same link on its received PSD over noise (see attribute SlPsfchErrorMode)
+     * \param pktIndex index of the PSFCH signal in m_slRxSigParamInfo
+     * \param nFb simultaneous PSFCH transmissions of the sender (power split)
+     * \return the error rate
+     */
+    double PsfchSnrErrorRate(uint32_t pktIndex, size_t nFb);
+    /**
      * \brief Get SINR stats function
      *
      * This method computes an average SINR and a minimum SINR among the RBs in
@@ -1021,15 +1035,27 @@ class NrSpectrumPhy : public SpectrumPhy
                                       //!< TB with HARQ feedback enabled is ACKed (TS 38.321
                                       //!< 5.22.2.2); false keeps it silent (5G-LENA default)
     bool m_slSoftCombining{true};      //!< soft-combine every retransmission (HARQ-IR)
+    uint8_t m_slPsfchErrorMode{0};     //!< PSFCH reception errors: 0 none (stock, error-free),
+                                       //!< 1 forced (SlPsfchMissProb), 2 SNR with the PSCCH error model
+    double m_slPsfchMissProb{0.0};     //!< mode 1: a received ACK/NACK is lost (read as DTX)
+    double m_slPsfchNackToAckProb{0.0}; //!< modes 1, 2: a received NACK is detected as ACK
+    uint16_t m_slPsfchEmRbs{1};        //!< mode 2: PRBs of the PSCCH-like decoding (1 = format 0)
+    double m_slPsfchTxPowerDbm{23.0}; //!< mode 2: PSFCH power before the N_Tx,PSFCH split (P_CMAX)
+    double m_slPsfchSnrOffsetDb{0.0};  //!< mode 2: offset added to the PSFCH SNR (power assumptions)
+    Ptr<UniformRandomVariable> m_slPsfchRv{nullptr}; //!< own stream, created on first use
+    Ptr<const SpectrumValue> m_slNoisePsd{nullptr};  //!< noise PSD (PSFCH SNR)
+    /// every PSFCH feedback reaching this PHY: sender node id, outcome (0 delivered, 1 lost forced,
+    /// 2 lost SNR, 3 NACK detected as ACK), the feedback as sent, and the mode-2 error rate
+    TracedCallback<uint32_t, uint8_t, const SlHarqInfo&, double> m_slPsfchRxTrace;
     bool m_slBlindSoftCombining{true}; //!< soft-combine copies sent with HARQ feedback
                                        //!< disabled; false decodes each copy on its own
     std::string m_slTestFixedSinr;     //!< test hook "rxNode:txNode=dB;...": PSSCH SINR of
-                                       //!< those links fixed on every RB (\"\" = off)
+                                       //!< those links fixed on every RB ("" = off)
     std::map<std::pair<uint32_t, uint32_t>, double>
         m_slTestFixedSinrMap; //!< parsed m_slTestFixedSinr: (rx node, tx node) -> linear SINR
     bool m_slTestFixedSinrParsed{false}; //!< m_slTestFixedSinrMap built
     std::string m_slTestDropSci; //!< test hook "rxNode:txNode:k[,k...];...": the k-th expected
-                                 //!< PSSCH reception from txNode is ignored at rxNode (\"\" = off)
+                                 //!< PSSCH reception from txNode is ignored at rxNode ("" = off)
     std::map<std::pair<uint32_t, uint32_t>, std::set<uint32_t>>
         m_slTestDropSciMap; //!< parsed m_slTestDropSci: (rx node, tx node) -> receptions to drop
     std::map<std::pair<uint32_t, uint32_t>, uint32_t>
