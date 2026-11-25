@@ -874,6 +874,8 @@ class NrSlUeMac : public NrUeMac
                    const std::list<SensingData>&,
                    const std::list<SfnSf>&>
         m_tracedSensingAlgorithm;
+    /// every SCI-1A added to this UE's sensing data (trace "SensingDataRx")
+    TracedCallback<const SensingData&> m_sensingDataRxTrace;
 };
 
 /**

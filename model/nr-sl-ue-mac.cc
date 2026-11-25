@@ -150,7 +150,11 @@ NrSlUeMac::GetTypeId()
             .AddTraceSource("SensingAlgorithm",
                             "Candidates selected by the mode 2 sensing algorithm",
                             MakeTraceSourceAccessor(&NrSlUeMac::m_tracedSensingAlgorithm),
-                            "ns3::NrSlUeMac::SensingAlgorithmTracedCallback");
+                            "ns3::NrSlUeMac::SensingAlgorithmTracedCallback")
+            .AddTraceSource("SensingDataRx",
+                            "An SCI-1A added to the sensing data of this UE",
+                            MakeTraceSourceAccessor(&NrSlUeMac::m_sensingDataRxTrace),
+                            "ns3::NrSlUeMac::SensingDataRxTracedCallback");
     return tid;
 }
 
@@ -946,6 +950,7 @@ NrSlUeMac::DoReceiveSensingData(SensingData sensingData)
     {
         // oldest data will be at the front of the queue
         m_sensingData.push_back(sensingData);
+        m_sensingDataRxTrace(sensingData);
     }
 }
 

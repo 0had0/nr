@@ -523,6 +523,8 @@ struct SensingData
     uint8_t sbChStartReTx2{
         std::numeric_limits<uint8_t>::max()}; //!< The index of the starting sub-channel allocated
                                               //!< to second retransmission
+    uint16_t txRnti{0}; //!< RNTI of the transmitting UE (simulator bookkeeping, not in the
+                        //!< SCI; used only by NrSlUeMac::SetSensingPeer instrumentation)
 };
 
 /**
